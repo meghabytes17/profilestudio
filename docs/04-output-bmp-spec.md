@@ -1,26 +1,16 @@
-# 04 — Output `.bmp` Specification
+# 04 — Output `.bmp` Specification (finalized)
 
 ## Format
-- Windows BMP (uncompressed). Pillow writes this natively via `Image.save("x.bmp")`.
-- Color depth: 24-bit RGB by default. (8-bit palettized is an option if materials map
-  to a fixed indexed palette — smaller files, crisp material boundaries.)
+- Windows BMP, 24-bit, written by OpenCV `cv2.imwrite` (float canvas falls back
+  to 8-bit on write — this is expected and matches the reference).
+- Deterministic: identical input + nm/px -> **byte-identical** BMP. Guarded by
+  `tests/test_golden.py` against `tests/golden/e1s1_test.bmp`.
 
-## Dimensions & scale
-- Image size derived from the physical extent × scale `s` (see doc 02), or fit to a
-  user-specified canvas size.
-- Document exact rounding/padding so `e1s1.csv` reproducibly yields `e1s1_test.bmp`.
+## Colors (OpenCV BGR)
+- Fill: `(232, 162, 0)` BGR = sky-blue `(0, 162, 232)` RGB.
+- Background: black `(0, 0, 0)`.
+- (Future) per-material palette for multi-layer profiles.
 
-## Material coloring
-- A palette maps material -> RGB. Options:
-  - Fixed built-in palette (deterministic, good for golden tests).
-  - User-assignable per material in the GUI.
-- Background color and substrate color defined explicitly.
-
-## Open questions
-- Anti-aliasing on/off? (Affects byte-for-byte golden comparisons.)
-- Include a scale bar / axis / labels, or pure geometry only?
-- Fixed output size vs. size-follows-content?
-
-## Reproducibility / testing
-- The pipeline must be deterministic: same input + params -> identical BMP bytes.
-- Store `tests/golden/e1s1_test.bmp` and compare on CI (see doc note in tests/).
+## Open (for the expansion)
+- Anti-aliasing stays **off** to keep golden comparisons exact.
+- Multi-material fills, optional scale bar/labels — deferred.

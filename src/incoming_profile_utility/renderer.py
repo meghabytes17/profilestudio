@@ -1,16 +1,24 @@
-"""Rasterize geometry to a .bmp using Pillow (see docs/04).
+"""Rasterize polygons to a .bmp using OpenCV (matches the reference pipeline).
 
-Pipeline must be deterministic so e1s1.csv reproducibly yields e1s1_test.bmp.
+Fill color and background are BGR (OpenCV convention). Default (232,162,0) BGR
+renders as sky-blue (0,162,232) RGB on a black background. See docs/04.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
+import cv2
+import numpy as np
 
-def render_to_bmp(geometry, out_path: str | Path, scale: float, palette: dict | None = None):
-    """Draw material polygons onto an RGB canvas and save as .bmp.
+FILL_BGR = (232, 162, 0)
+BG_BGR = (0, 0, 0)
 
-    TODO: allocate canvas from physical extent x scale, fill polygons by material
-    color (palette), save via Image.save(out_path) — Pillow writes BMP natively.
-    """
-    raise NotImplementedError
+
+def render_polygons(polygons, dims: tuple[int, int], out_path: str | Path,
+                    fill_bgr=FILL_BGR) -> None:
+    """Fill polygons on a canvas of size dims=(h, w) and save as .bmp."""
+    h, w = dims
+    img = np.zeros((h, w, 3))  # float canvas; cv2 falls back to 8-bit on write
+    for poly in polygons:
+        cv2.fillPoly(img, np.array([poly], dtype=np.int32), fill_bgr)
+    cv2.imwrite(str(out_path), img)

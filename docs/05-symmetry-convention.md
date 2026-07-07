@@ -1,24 +1,19 @@
-# 05 — Symmetry Convention
-
-The generated profile must **always be symmetric**. This defines how.
+# 05 — Symmetry Convention (finalized)
 
 ## Rule
-- Mirror plane is the vertical axis `x = 0` (center of the unit cell).
-- Build the right half in physical space, then mirror to the left:
-  `left = mirror_x(right)`. This guarantees exact symmetry (no per-pixel drift).
+The profile is symmetric about the **vertical center line** of the canvas. This is
+achieved by centering every width within `max_width`:
 
-## Consequences for input
-- If a CSV/parameter gives a **full width** (CD), the half-width is `CD / 2`.
-- If input is already two-sided but slightly asymmetric (measurement noise), decide a
-  policy: (a) average the two sides, (b) take one side as authoritative, or (c) reject.
-  **Default: take right side (or the max) as authoritative and mirror.** Confirm.
+    left_edge  = (max_width - width) / 2
+    right_edge =  max_width - (max_width - width) / 2
 
-## Consequences for rendering
-- Render one half at full resolution, mirror the pixel buffer, concatenate — OR
-  render the full symmetric polygon set directly. Prefer geometry-level mirroring so
-  the raster pass sees a single symmetric polygon (cleaner edges at the axis).
+The renderer fills a left polygon and a right polygon that are mirror images, so
+symmetry is exact by construction — no per-pixel drift.
 
-## Open questions
-- Is left-right the only symmetry, or is vertical stacking symmetry ever needed?
-- For odd features straddling the axis (a single centered line), confirm the axis
-  passes through the feature center, not its edge.
+## Input implication
+CSV `Width` is the **full** CD (not a half-width). A single centered feature has
+its centerline on the mirror axis.
+
+## For parametric builders (docs/03)
+Build the right half in physical space, then mirror to the left before rasterizing,
+so the same guarantee holds for tapered/re-entrant/scalloped walls.

@@ -1,23 +1,15 @@
 # Core runtime dependencies for the Incoming Profile Utility.
-# Pin versions once the architecture stabilizes; loose for now.
+# These match the original tool's stack (reference/profile_sketcher.py).
 
-# Raster image creation + native .bmp output
-pillow>=10.0
+numpy>=1.26          # arrays, scaling, coordinate math
+pandas>=2.0          # CSV (width/height trace) parsing
+opencv-python>=4.9   # polygon fill + native .bmp write (use -headless on CI/servers)
+customtkinter>=5.2   # themed tkinter GUI (file pickers, nm/px field, Generate)
+pillow>=10.0         # image handling / Tk preview interop
 
-# Array math / pixel buffers / coordinate transforms
-numpy>=1.26
-
-# 2D geometry: polygon offsetting (conformal film deposition == buffering),
-# unions, intersections, symmetry mirroring. Optional but strongly recommended.
+# Recommended for the parametric profile builders (docs/03): polygon offsetting
+# gives conformal films, tapered/re-entrant walls, footing, etc. for near-free.
 shapely>=2.0
 
-# CSV / tabular input parsing. (stdlib `csv` also works; pandas is convenient.)
-pandas>=2.0
-
-# --- GUI ---
-# The scaffold defaults to tkinter (ships with Python, no install needed).
-# If we move to a richer UI with a live preview pane, switch to PySide6:
-# PySide6>=6.6
-
-# --- Dev / test (optional; install with: pip install -r requirements-dev.txt) ---
-# pytest>=8.0
+# Dev/test:
+#   pytest>=8.0

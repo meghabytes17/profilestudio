@@ -1,24 +1,19 @@
-# 02 — Coordinate System & Units
+# 02 — Coordinate System, Units & Scale (finalized)
 
-## Physical vs. pixel space
-Two distinct spaces, connected by a single **scale factor** `s` (pixels per nm):
+## Units
+Physical dimensions are **nanometers**. A single scale factor `nm_per_px` maps nm -> pixels.
 
-- **Physical space:** real dimensions in nm (or µm), y-up (0 at substrate bottom).
-- **Pixel space:** image raster, y-**down** (row 0 at top), origin top-left.
+## Auto scale
+`auto_nm_per_pixel = round( sqrt(max_width * height_span / 100000), 2 )`
+— targets a raster of ~100k px area. For `e1s1.csv` this yields **0.25 nm/px**
+(-> 104 x 959 px). The value is user-editable in the GUI.
 
-`pixel_x = round((x_phys - x_min) * s)`
-`pixel_y = round((y_max - y_phys) * s)`   ← note the flip for y-down
+## Canvas dims
+`width_px  = ceil(max_width  / nm_per_px)`
+`height_px = ceil(height_span / nm_per_px)`  (height_span = peak-to-peak of Height)
 
-Keeping all geometry in physical units until the final raster pass avoids
-accumulated rounding error and makes symmetry exact.
-
-## Origin & symmetry axis
-- Physical origin at the **center** of the unit cell so the symmetry axis is `x = 0`.
-- The renderable window spans `x ∈ [-pitch/2, +pitch/2]` (one unit cell) unless a
-  multi-cell view is requested.
-
-## Open questions
-- Default units: nm assumed. Confirm.
-- Default scale `s`: fixed (e.g. 1 px/nm) or auto-fit to a target image size?
-- Do we render exactly one unit cell, N cells, or auto-pad?
-- Substrate: drawn to the image bottom edge, or a fixed thickness?
+## Axes & symmetry
+- Raster is **y-down** (row 0 = top). Physical height is converted via
+  `y_px = (max_height - height) / nm_per_px`.
+- Each width is centered within `max_width`, so the vertical center line is the
+  mirror axis (docs/05). Left edge at `(max_w - w)/2`, right edge at `max_w - (max_w - w)/2`.

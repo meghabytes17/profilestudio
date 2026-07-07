@@ -1,23 +1,40 @@
-"""Profile catalog / builders.
+"""High-level profile builders.
 
-Each builder returns geometry (polygons per material) in physical space.
-Catalog defined in docs/03-profile-catalog.md; finalize against example profiles.
+Implemented:
+    render_trace_csv  -- CSV(width,height) -> symmetric filled profile -> .bmp
+
+Planned parametric builders (docs/03), grounded in the example_profiles/ set:
+    - sidewall variants: vertical / tapered (positive) / re-entrant (negative)
+    - scalloping (Bosch DRIE periodic sidewall texture)
+    - bottom effects: footing, notching, microtrench, rounding
+    - bowing (mid-height bulge)
+    - conformal film on a feature (polygon offset -- shapely recommended here)
+These will emit the same (left,right)-polygon structure so the renderer is shared.
 """
 from __future__ import annotations
 
+from pathlib import Path
 
-def film_stack(layers):
-    """Planar blanket film stack. TODO."""
-    raise NotImplementedError
-
-
-def line_space_grating(pitch, cd, height, sidewall_angle=90.0):
-    """Repeating line/space grating (one symmetric unit cell). TODO."""
-    raise NotImplementedError
+from . import geometry as geo
+from . import renderer as rnd
+from .io_csv import load_trace
 
 
-def trench(pitch, width, depth, sidewall_angle=90.0):
-    """STI-style trench. TODO."""
-    raise NotImplementedError
+def render_trace_csv(csv_path: str | Path, out_path: str | Path,
+                     nm_per_px: float | None = None) -> tuple[float, tuple[int, int]]:
+    """Full pipeline: load trace, scale, build symmetric polygons, render to .bmp.
 
-# TODO: fin(), gate_stack(), spacer(), via(), ... per docs/03
+    Returns (nm_per_px_used, (width_px, height_px)).
+    """
+    data = load_trace(csv_path)
+    if nm_per_px is None:
+        nm_per_px = geo.auto_nm_per_pixel(data)
+    h, w = geo.image_dims(data, nm_per_px)
+    polys = geo.trace_to_polygons(data, h, w, nm_per_px)
+    rnd.render_polygons(polys, (h, w), out_path)
+    return nm_per_px, (w, h)
+
+
+# --- parametric builders (TODO) ---
+def sidewall_profile(*args, **kwargs):
+    raise NotImplementedError("Parametric sidewall builder — see docs/03.")
