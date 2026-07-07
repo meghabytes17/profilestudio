@@ -22,3 +22,15 @@ def render_polygons(polygons, dims: tuple[int, int], out_path: str | Path,
     for poly in polygons:
         cv2.fillPoly(img, np.array([poly], dtype=np.int32), fill_bgr)
     cv2.imwrite(str(out_path), img)
+
+
+def render_layers(layers, dims: tuple[int, int], out_path) -> None:
+    """Fill a list of (polygon_pixels, bgr_color) onto a canvas of size dims=(h, w).
+
+    Layers are painted in order, so later materials overpaint earlier ones.
+    """
+    h, w = dims
+    img = np.zeros((h, w, 3))
+    for poly, bgr in layers:
+        cv2.fillPoly(img, np.array([poly], dtype=np.int32), bgr)
+    cv2.imwrite(str(out_path), img)
