@@ -1,0 +1,33 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# ---- Testing / tooling ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Project: generated artifacts ----
+# Rendered profiles are build products, not source. Keep the folder, ignore its contents.
+outputs/*
+!outputs/.gitkeep
+*.bmp
+
+# Exception: golden/reference images used by tests are intentionally versioned.
+!tests/**/*.bmp

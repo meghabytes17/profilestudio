@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "incoming-profile-utility"
+version = "0.1.0"
+description = "Generate symmetric semiconductor cross-section profiles from CSV/parametric input and render them to .bmp"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pillow>=10.0",
+    "numpy>=1.26",
+    "shapely>=2.0",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+gui-qt = ["PySide6>=6.6"]
+dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10"]
+
+[project.scripts]
+# Lets users run `profile-utility` from the shell once installed.
+profile-utility = "incoming_profile_utility.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100

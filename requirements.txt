@@ -1,0 +1,23 @@
+# Core runtime dependencies for the Incoming Profile Utility.
+# Pin versions once the architecture stabilizes; loose for now.
+
+# Raster image creation + native .bmp output
+pillow>=10.0
+
+# Array math / pixel buffers / coordinate transforms
+numpy>=1.26
+
+# 2D geometry: polygon offsetting (conformal film deposition == buffering),
+# unions, intersections, symmetry mirroring. Optional but strongly recommended.
+shapely>=2.0
+
+# CSV / tabular input parsing. (stdlib `csv` also works; pandas is convenient.)
+pandas>=2.0
+
+# --- GUI ---
+# The scaffold defaults to tkinter (ships with Python, no install needed).
+# If we move to a richer UI with a live preview pane, switch to PySide6:
+# PySide6>=6.6
+
+# --- Dev / test (optional; install with: pip install -r requirements-dev.txt) ---
+# pytest>=8.0
