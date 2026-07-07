@@ -10,7 +10,9 @@ few numbers and the tool generates a smooth symmetric sidewall.
 | `bottom_width` | full width at the base (height 0) -- control point |
 | `mid_width`    | full width at mid-height -- control point |
 | `top_width`    | full width at the top -- control point |
-| `bow`          | mid deviation from the top/bottom average; sets sidewall curvature |
+| `bow`          | the MAXIMUM CD (widest full width on the wall) |
+| `bow_height`   | height at which the bow (max CD) occurs; default H/2 |
+| `mid_width`    | CD at mid-height, for a gentle curve with no distinct peak |
 | `pitch`        | unit-cell width (one line + one space) |
 | `space`        | gap width; `pitch = linewidth + space` |
 | `mask_height`  | height of the mask block on top (separate material) |
@@ -19,18 +21,24 @@ Provide `pitch`, or any two of {`pitch`, `space`, `linewidth`}. Give either
 `mid_width` directly or `bow` (then `mid_width = (top+bottom)/2 + bow`).
 
 ## The curvature model
-A parabola is fit through the three control points
-`(0, bottom/2)`, `(H/2, mid/2)`, `(H, top/2)`. Because a parabola's mid value is
-its deviation from the endpoint average, **bow is literally the curvature knob**:
+The sidewall half-width vs height is built from what you provide:
 
-- `bow = 0`  -> straight taper (linear from bottom to top)
-- `bow > 0`  -> barrel / bulge (widest at mid)
-- `bow < 0`  -> waist / pinch (narrowest at mid)
-- `bottom_width > top_width` -> re-entrant / undercut
+- **`bow` (max CD) + `bow_height`** -> a smooth bulge whose maximum equals `bow`,
+  located at `bow_height`. Two parabolas meet with zero slope at the apex, so the
+  peak sits exactly at `(bow_height, bow)` and the walls curve into it. `bow_height`
+  is free -- the widest point can be low, mid, or high (see demo). Constraint:
+  `bow >= max(bottom_width, top_width)` (it is the maximum). The demo below moves a
+  fixed max CD from low to high:
 
-![curvature demo](curvature_demo.png)
+![bow-location demo](curvature_demo.png)
 
-Verified: rendered widths at bottom/mid/top match the input CDs exactly.
+- **`mid_width`** (no bow) -> parabola through bottom / mid / top: a gentle curved
+  wall, and the way to express a waist/pinch (mid narrower than the ends).
+- **neither** -> straight linear taper. `bottom_width > top_width` gives a
+  re-entrant / undercut wall.
+
+Verified in tests: max CD equals `bow`, the widest point lands at `bow_height`, and
+the peak migrates as `bow_height` changes.
 
 ## Beyond three points (later)
 Three control points cover taper, bow, waist, and re-entrant walls -- the common

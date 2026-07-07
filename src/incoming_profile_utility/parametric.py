@@ -34,27 +34,62 @@ def _resolve_cell(p: dict) -> float:
     raise ValueError("Provide 'pitch', or both 'space' and 'linewidth'.")
 
 
+def _half_width(ys, H, bottom, top, bow=None, bow_height=None, mid_width=None):
+    """Half-width (distance from centerline) vs height.
+
+    Priority:
+      1. bow given  -> smooth bulge whose MAXIMUM CD == bow, located at bow_height
+         (default H/2). Two parabolas meet with zero slope at the apex, so the peak
+         is exactly at (bow_height, bow) and the walls curve smoothly into it.
+      2. mid_width given -> parabola through bottom / mid / top (gentle curve, no peak).
+      3. neither -> straight linear taper from bottom to top.
+    """
+    hb, ht = bottom / 2, top / 2
+
+    if bow is not None:
+        if bow < max(bottom, top) - 1e-9:
+            raise ValueError(
+                "bow is the max CD, so it must be >= bottom_width and top_width. "
+                "For a pinched/waisted wall, use mid_width instead."
+            )
+        hv = bow / 2
+        eps = H * 1e-3
+        hbow = H / 2 if bow_height is None else float(bow_height)
+        hbow = min(max(hbow, eps), H - eps)
+        out = np.empty_like(ys, dtype=float)
+        lo = ys <= hbow
+        out[lo] = hv + (hb - hv) / hbow**2 * (ys[lo] - hbow) ** 2
+        out[~lo] = hv + (ht - hv) / (H - hbow) ** 2 * (ys[~lo] - hbow) ** 2
+        return np.clip(out, 0, None)
+
+    if mid_width is not None:
+        coef = np.polyfit([0.0, H / 2, H], [hb, mid_width / 2, ht], 2)
+        return np.clip(np.polyval(coef, ys), 0, None)
+
+    return hb + (ht - hb) * (ys / H)
+
+
 def build_line(p: dict, nm_per_px: float):
     """Build (layers, dims) for a single symmetric line profile.
 
     layers: list of (polygon_in_pixels, bgr_color). dims: (height_px, width_px).
     Required: feature_height, bottom_width, top_width, and pitch (or space+linewidth).
-    Optional: mid_width or bow, mask_height, mask_width, feature_color, mask_color.
+    Optional:
+      bow          -- the MAXIMUM CD (full width at the widest point of the wall)
+      bow_height   -- height at which the bow (max CD) occurs; default H/2
+      mid_width    -- CD at mid-height, for a gentle curve with no distinct peak
+      mask_height, mask_width, feature_color, mask_color
     """
     H = p["feature_height"]
     bottom, top = p["bottom_width"], p["top_width"]
-    bow = p.get("bow", 0.0)
-    mid = p.get("mid_width", (top + bottom) / 2 + bow)
     pitch = _resolve_cell(p)
     mask_h = p.get("mask_height", 0.0)
     mask_w = p.get("mask_width", top)
 
-    # parabola through (0, bottom/2), (H/2, mid/2), (H, top/2)
-    hs = np.array([0.0, H / 2, H])
-    hw = np.array([bottom / 2, mid / 2, top / 2])
-    coef = np.polyfit(hs, hw, 2)
-    ys = np.linspace(0, H, 300)
-    xs = np.clip(np.polyval(coef, ys), 0, None)
+    ys = np.linspace(0, H, 400)
+    xs = _half_width(ys, H, bottom, top,
+                     bow=p.get("bow"), bow_height=p.get("bow_height"),
+                     mid_width=p.get("mid_width"))
 
     total_h = H + mask_h
     W_px = math.ceil(pitch / nm_per_px)
