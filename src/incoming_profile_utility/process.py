@@ -94,24 +94,28 @@ def mask_polygon(width, height, base_y, corner="square", facet_angle=45.0, radiu
 #   line      : a solid feature (CD curve) standing in vacuum + mask
 # --------------------------------------------------------------------------- #
 def _build_material_stack(p: dict) -> State:
-    """New primary model: a vertical stack of material layers (bottom->top), each a
-    full-cell band, with a centered rectangular opening of width `space` cut from the
-    TOP down by `opening_depth` (default: through the whole stack). Empty -> blank."""
+    """Vertical stack of material layers with a centered rectangular opening.
+
+    Layers are given TOP-first (row 1 = top of the stack). Height = sum of thicknesses,
+    plus `top_vacuum` of empty space above (default 20 nm) so there is room to deposit
+    on top. Opening: width `space`, cut from the top down by `opening_depth`.
+    """
     pitch = p.get("pitch", 100.0)
     space = p.get("space", 0.0) or 0.0
+    top_vac = p.get("top_vacuum", 20.0) or 0.0
     layers = [l for l in p.get("material_layers", []) if l.get("thickness", 0) > 0]
     total = sum(l["thickness"] for l in layers)
     depth = p.get("opening_depth")
     open_bottom = 0.0 if (depth is None or depth <= 0 or depth >= total) else (total - depth)
     opening = box(-space / 2, open_bottom, space / 2, total) if space > 0 else None
-    cell = box(-pitch / 2, 0, pitch / 2, max(total, 1.0))
+    cell = box(-pitch / 2, 0, pitch / 2, max(total + top_vac, 1.0))
     st = State(cell, [])
     y = 0.0
-    for l in layers:
+    for l in reversed(layers):            # last row -> bottom, first row -> top
         th = l["thickness"]
         band = box(-pitch / 2, y, pitch / 2, y + th)
         if opening is not None:
-            band = band.difference(opening)   # opening = space wide, top-down to `depth`
+            band = band.difference(opening)
         st.add(l["material"], band)
         y += th
     return st
@@ -184,15 +188,18 @@ def _extrude_down(geom, depth):
 def conformal_deposit(state: State, material: str, thickness: float) -> State:
     """Uniform film of `thickness` grown on all exposed surfaces into the open region.
 
-    On an empty base there is no surface to conform to, so the first film is deposited
-    as a blanket slab (a bare wafer's first film is planar) — this makes 'start from
-    Blank and deposit layer by layer' behave as expected.
+    On an empty base the first film is a blanket (planar). The cell is grown upward as
+    needed so a film deposited on the TOP surface is shown rather than clipped away.
     """
     s = state.solid()
     if s.is_empty:
         return planar_deposit(state, material, thickness)
-    film = s.buffer(thickness, join_style=2).difference(s).intersection(state.cell)
-    st = state.copy(); st.add(material, film); return st
+    minx, miny, maxx, maxy = state.cell.bounds
+    ext = box(minx, miny, maxx, maxy + thickness)                # room for top coating
+    film = s.buffer(thickness, join_style=2).difference(s).intersection(ext)
+    newtop = max(maxy, film.bounds[3] if not film.is_empty else maxy)
+    st = state.copy(); st.cell = box(minx, miny, maxx, newtop)
+    st.regions.append((material, film)); return st
 
 
 def planar_deposit(state: State, material: str, thickness: float) -> State:
@@ -212,14 +219,23 @@ def fill(state: State, material: str, up_to: float | None = None) -> State:
     st = state.copy(); st.add(material, region); return st
 
 
-def etch(state: State, depth: float, mode: str = "isotropic") -> State:
-    """Remove material from exposed surfaces. mode: 'isotropic' or 'anisotropic' (vertical)."""
-    if mode == "anisotropic":
-        removal = _extrude_down(state.open(), depth).intersection(state.solid())
-    else:
-        removal = state.open().buffer(depth, join_style=2).intersection(state.solid())
+def etch(state: State, depth: float, anisotropy: float = 1.0, mode: str | None = None) -> State:
+    """Remove material from exposed surfaces to `depth`.
+
+    anisotropy in [0,1]: 1 = fully vertical (no undercut); 0 = isotropic (lateral
+    undercut equal to depth). Lateral undercut = depth × (1 − anisotropy).
+    `mode` ('isotropic'/'anisotropic') is still accepted and maps to 0/1.
+    """
+    if mode == "isotropic": anisotropy = 0.0
+    elif mode == "anisotropic": anisotropy = 1.0
+    a = min(max(float(anisotropy), 0.0), 1.0)
+    lateral = depth * (1.0 - a)
+    removal = _extrude_down(state.open(), depth)
+    if lateral > 1e-9:
+        removal = removal.buffer(lateral, join_style=2)
+    removal = removal.intersection(state.solid())
     new = [(m, g.difference(removal)) for m, g in state.regions]
-    st = State(state.cell, [(m, g) for m, g in new if not g.is_empty]); return st
+    return State(state.cell, [(m, g) for m, g in new if not g.is_empty])
 
 
 def planarize(state: State, at_height: float) -> State:

@@ -22,7 +22,9 @@ def load_trace(path: str | Path) -> pd.DataFrame:
         pd.to_numeric, errors="raise"
     )
     if (df["width"] < 0).any() or (df["height"] < 0).any():
-        raise ValueError("Width and height values must be non-negative.")
+        raise ValueError("Values must be non-negative: width is the full CD (a size, "
+                         "spanning ±width/2 about the centerline), height is position "
+                         "from the base. Neither can be negative.")
     return df
 
 
