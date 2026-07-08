@@ -42,3 +42,12 @@ lower angles taper toward a triangular top). **Round** uses a corner radius.
 ## Profile spec (serializable)
 `render_profile_spec({"base": {...}, "ops": [ {...}, ... ]}, palette, out, nm_per_px)`
 — a profile is just a base + op list, so it round-trips to JSON.
+
+
+## In the GUI
+Parametric mode now drives this engine directly: base fields + Surround + a
+**Mask shape** control (Square / Facet / Round, facet by angle) + a live
+**Process stack** of operations you can add, reorder (↑ ↓), and delete. The preview
+re-renders on every change and the legend lists every material in the final stack.
+
+![engine-driven GUI](gui_v1.png)
