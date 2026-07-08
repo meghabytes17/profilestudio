@@ -16,6 +16,7 @@
     "highk":       { "rgb": [76, 11, 194],   "label": "High-k" },
     "substrate":   { "rgb": [185, 122, 87],  "label": "Substrate" },
     "tungsten":    { "rgb": [176, 196, 222],  "label": "Tungsten" },
+    "sige":        { "rgb": [163, 73, 164],   "label": "SiGe" },
     "cobalt":      { "rgb": [120, 144, 176],  "label": "Cobalt" },
     "copper":      { "rgb": [214, 137, 92],   "label": "Copper" }
   }

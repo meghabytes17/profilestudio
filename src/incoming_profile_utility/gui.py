@@ -186,8 +186,12 @@ class ProfileStudio(ctk.CTk):
 
         # 2) BASE FEATURE
         bs=ctk.CTkFrame(self.param_page,fg_color="transparent"); bs.pack(fill="x",pady=(4,4)); bs.grid_columnconfigure(2,weight=1)
-        ctk.CTkLabel(bs,text="BASE FEATURE  (the starting trench the steps act on)",font=self.eb,text_color=BLUE_L).grid(row=0,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
-        for i,(k,label,default,info) in enumerate(FIELDS,1):
+        ctk.CTkLabel(bs,text="BASE FEATURE  (the starting point the steps act on)",font=self.eb,text_color=BLUE_L).grid(row=0,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
+        self.base_shape=ctk.CTkSegmentedButton(bs,values=["Blank","Substrate","Trench","Line"],command=lambda _v:self.render_preview(),font=self.uf,
+                        fg_color=NAVY_900,selected_color=BLUE,selected_hover_color=BLUE_L,unselected_color=NAVY_900,text_color=SOFT)
+        self.base_shape.set("Trench"); self._row(bs,1,"Base",
+            "Blank = empty canvas (build up with deposits). Substrate = flat slab. Trench = vacuum trench in surround. Line = solid feature.",self.base_shape)
+        for i,(k,label,default,info) in enumerate(FIELDS,2):
             e=ctk.CTkEntry(bs,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
             e.insert(0,default); e.bind("<KeyRelease>",self._schedule_render); self._row(bs,i,label,info,e); self.entries[k]=e
 
@@ -266,7 +270,8 @@ class ProfileStudio(ctk.CTk):
         self.entries["mask_facet_angle"].delete(0,"end"); self.entries["mask_facet_angle"].insert(0,"60")
         self.entries["mask_radius"].delete(0,"end"); self.entries["mask_radius"].insert(0,"12")
         self.opt["surround_material"].set("silicon"); self.opt["mask_material"].set("hardmask")
-        self.mask_shape.set("Square"); self.scale_entry.delete(0,"end"); self.scale_entry.insert(0,"0.4")
+        self.mask_shape.set("Square"); self.base_shape.set("Blank")
+        self.scale_entry.delete(0,"end"); self.scale_entry.insert(0,"0.4")
         self._relayout_ops(); self.render_preview()
 
     def _set_mode(self,value):
@@ -326,6 +331,7 @@ class ProfileStudio(ctk.CTk):
         p["surround_material"]=self.opt["surround_material"].get()
         p["mask_material"]=self.opt["mask_material"].get()
         p["mask_corner"]=self._mask_corner()
+        p["base_type"]={"Blank":"blank","Substrate":"substrate","Trench":"trench","Line":"line"}[self.base_shape.get()]
         return p
 
     def _scale(self):

@@ -87,33 +87,45 @@ def mask_polygon(width, height, base_y, corner="square", facet_angle=45.0, radiu
 
 
 # --------------------------------------------------------------------------- #
-# Base state (inverted default: vacuum feature carved into surround material)
+# Base state — selectable starting point for the process stack
+#   blank     : empty cell (all vacuum); build everything with ops
+#   substrate : a flat slab of surround material; build a film stack on top
+#   trench    : inverted default — vacuum trench carved into surround + mask
+#   line      : a solid feature (CD curve) standing in vacuum + mask
 # --------------------------------------------------------------------------- #
 def build_base(p: dict) -> State:
     H = p["feature_height"]
-    bottom, top = p["bottom_width"], p["top_width"]
+    bottom, top = p.get("bottom_width", 0.0), p.get("top_width", 0.0)
     pitch = p.get("pitch") or (p["space"] + p.get("linewidth", top))
     mask_h = p.get("mask_height", 0.0)
+    base_type = p.get("base_type", "trench")
     total_h = H + mask_h
-    cell = box(-pitch / 2, 0, pitch / 2, total_h)
-
-    ys = np.linspace(0, H, 240)
-    xs = half_width_curve(ys, H, bottom, top, p.get("bow"), p.get("bow_height"),
-                          p.get("mid_width"))
-    right = [(x, y) for x, y in zip(xs, ys)]
-    left = [(-x, y) for x, y in zip(xs, ys)][::-1]
-    feature = Polygon(right + left)                  # the trench (vacuum) within 0..H
-
+    cell = box(-pitch / 2, 0, pitch / 2, max(total_h, 1.0))
     st = State(cell, [])
     surround = p.get("surround_material", "silicon")
-    st.add(surround, box(-pitch / 2, 0, pitch / 2, H).difference(feature))
+
+    if base_type == "blank":
+        return st                                     # empty canvas; start with a deposit
+    if base_type == "substrate":
+        st.add(surround, box(-pitch / 2, 0, pitch / 2, H))   # flat slab to build on
+        return st
+
+    # curve for trench / line
+    ys = np.linspace(0, H, 240)
+    xs = half_width_curve(ys, H, bottom, top, p.get("bow"), p.get("bow_height"), p.get("mid_width"))
+    feature = Polygon([(x, y) for x, y in zip(xs, ys)] + [(-x, y) for x, y in zip(xs, ys)][::-1])
+
+    if base_type == "line":                           # solid feature standing in vacuum
+        st.add(p.get("feature_material", surround), feature)
+    else:                                             # trench (inverted default)
+        st.add(surround, box(-pitch / 2, 0, pitch / 2, H).difference(feature))
 
     if mask_h > 0:
         mp = mask_polygon(p.get("mask_width", pitch), mask_h, H,
                           corner=p.get("mask_corner", "square"),
                           facet_angle=p.get("mask_facet_angle", 45.0),
                           radius=p.get("mask_radius", 0.0))
-        opening = box(-top / 2, H, top / 2, total_h)  # trench opening continues through mask
+        opening = box(-top / 2, H, top / 2, total_h) if base_type != "line" else Polygon()
         st.add(p.get("mask_material", "hardmask"), mp.difference(opening))
     return st
 

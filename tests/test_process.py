@@ -71,3 +71,22 @@ def test_evaluate_runs_full_stack():
     st = evaluate(build_base(BASE), ops)
     mats = [m for m, _ in st.regions]
     assert mats[-3:] == ["oxide", "nitride", "tungsten"]
+
+
+def test_base_types():
+    from incoming_profile_utility.process import build_base
+    p = dict(pitch=100, feature_height=100, bottom_width=30, top_width=40, mask_height=10)
+    assert build_base({**p, "base_type": "blank"}).regions == []          # empty canvas
+    sub = build_base({**p, "base_type": "substrate"})
+    assert [m for m, _ in sub.regions] == ["silicon"]                     # flat slab only
+    line = build_base({**p, "base_type": "line"})
+    assert line.solid().area > 0 and "hardmask" in [m for m, _ in line.regions]
+
+
+def test_superlattice_from_substrate():
+    from incoming_profile_utility.process import build_base, evaluate
+    base = build_base(dict(base_type="substrate", pitch=100, feature_height=20, mask_height=0))
+    ops = [dict(op="planar_deposit", material="sige" if i % 2 else "silicon", thickness=15) for i in range(6)]
+    st = evaluate(base, ops)
+    assert len(st.regions) == 7                                           # substrate + 6 films
+    assert st.solid().bounds[3] > 20                                      # stack grew upward
