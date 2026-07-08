@@ -315,7 +315,7 @@ class ProfileStudio(ctk.CTk):
         common=ctk.CTkFrame(card,fg_color="transparent"); common.pack(fill="x",padx=10,pady=(2,8)); common.grid_columnconfigure(2,weight=1)
         self.scale_entry=ctk.CTkEntry(common,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120,placeholder_text="auto")
         self.scale_entry.bind("<KeyRelease>",self._schedule_render)
-        self._row(common,0,"Resolution (nm/px)","Blank = auto-fit (~900 px on the long side). Set a value to fix the nm-per-pixel calibration (smaller = higher resolution / bigger image).",self.scale_entry)
+        self._row(common,0,"Resolution (nm/px)","Blank = auto-fit (~1000 px tall). Set a value to fix the nm-per-pixel calibration (smaller = higher resolution / bigger image).",self.scale_entry)
 
     def _preview_card(self,parent):
         card=self._card(parent,"Preview"); card.grid(row=0,column=1,sticky="nsew")
@@ -474,8 +474,8 @@ class ProfileStudio(ctk.CTk):
         manual=self._scale()
         if manual and manual>0: return manual
         minx,miny,maxx,maxy=st.cell.bounds
-        dim=max(maxx-minx, maxy-miny, 1.0)
-        return max(dim/900.0, 0.02)   # auto: ~900 px on the long side
+        height=max(maxy-miny, 1.0)
+        return max(height/1000.0, 0.01)   # auto: ~1000 px tall
 
     def _render_to(self,out_path):
         base=proc.build_base(self._params()); st=proc.evaluate(base,self.stack.to_ops()); self._last_state=st
