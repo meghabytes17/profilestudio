@@ -23,9 +23,9 @@ FIELDS = [
     ("opening_depth","Opening depth (nm)","","How far down from the TOP the opening is cut. Blank = all the way through."),
     ("top_vacuum","Top vacuum (nm)","20","Empty space above the stack (room to deposit on top)."),
 ]
-OP_LABELS = ["Deposit · conformal","Deposit · planar","Fill","Etch","Planarize"]
+OP_LABELS = ["Deposit · conformal","Deposit · planar","Fill","Etch · isotropic","Etch · anisotropic","Planarize"]
 OP_PRESETS = {"deposit":("Deposit · conformal","oxide",8),"fill":("Fill","tungsten",0),
-              "etch":("Etch","oxide",5),"planarize":("Planarize","oxide",240)}
+              "etch":("Etch · anisotropic","oxide",5),"planarize":("Planarize","oxide",240)}
 
 
 def _op_to_row(op):
@@ -33,7 +33,9 @@ def _op_to_row(op):
     if o=="conformal_deposit": return ("Deposit · conformal", op.get("material","oxide"), op.get("thickness",0), 1.0)
     if o=="planar_deposit":    return ("Deposit · planar", op.get("material","oxide"), op.get("thickness",0), 1.0)
     if o=="fill":              return ("Fill", op.get("material","tungsten"), 0, 1.0)
-    if o=="etch":              return ("Etch", "oxide", op.get("depth",0), op.get("anisotropy",1.0))
+    if o=="etch":
+        a=op.get("anisotropy",1.0)
+        return (("Etch · isotropic" if a<=0 else "Etch · anisotropic"), "oxide", op.get("depth",0), a)
     if o=="planarize":         return ("Planarize", "oxide", op.get("at_height",0), 1.0)
     return ("Deposit · conformal","oxide",0,1.0)
 
@@ -149,9 +151,9 @@ class OpRow:
         self._sync()
     def _on_type(self,_v): self._sync(); self.host.app._schedule_render()
     def _sync(self):
-        et = self.optype.get()=="Etch"
-        self.mat.configure(state="normal" if self.optype.get() in self.NEEDS_MAT else "disabled")
-        if et: self.aniso_lbl.pack(side="left",padx=(6,1)); self.aniso.pack(side="left")
+        lbl=self.optype.get()
+        self.mat.configure(state="normal" if lbl in self.NEEDS_MAT else "disabled")
+        if lbl=="Etch · anisotropic": self.aniso_lbl.pack(side="left",padx=(6,1)); self.aniso.pack(side="left")
         else: self.aniso_lbl.pack_forget(); self.aniso.pack_forget()
     def to_op(self):
         lbl=self.optype.get(); mat=self.mat.get()
@@ -160,7 +162,8 @@ class OpRow:
         if lbl=="Deposit · conformal": return dict(op="conformal_deposit", material=mat, thickness=n)
         if lbl=="Deposit · planar":    return dict(op="planar_deposit", material=mat, thickness=n)
         if lbl=="Fill":                return dict(op="fill", material=mat)
-        if lbl=="Etch":
+        if lbl=="Etch · isotropic":    return dict(op="etch", depth=n, anisotropy=0.0)
+        if lbl=="Etch · anisotropic":
             try: a=float(self.aniso.get())
             except ValueError: a=1.0
             return dict(op="etch", depth=n, anisotropy=a)
@@ -436,7 +439,7 @@ class ProfileStudio(ctk.CTk):
 
     def _load_csv(self):
         from tkinter import filedialog
-        path=filedialog.askopenfilename(filetypes=[("CSV","*.csv")])
+        path=filedialog.askopenfilename(parent=self, filetypes=[("CSV","*.csv")])
         if not path: return
         try:
             df=load_trace(path)
@@ -444,7 +447,10 @@ class ProfileStudio(ctk.CTk):
             self.csv_label.configure(text=f"⚠ {exc}", text_color="#E58B8B"); return
         self._capture()
         self.opening_trace=[(float(w),float(h)) for w,h in zip(df["width"],df["height"])]
-        self.csv_label.configure(text=f"✓ Opening from {Path(path).name} ({len(df)} pts). Space & opening-depth ignored while a CSV opening is loaded.", text_color=GREEN)
+        hspan=float(df["height"].max()-df["height"].min())
+        if not self.matlayer_rows and hspan>0:      # give the opening something to cut, so it's visible
+            self.matlayer_rows.append(MaterialLayerRow(self,"silicon",round(hspan,1))); self._relayout_matstack()
+        self.csv_label.configure(text=f"✓ Opening from {Path(path).name} ({len(df)} pts). Edit the material layers to embed it; Space is ignored while a CSV opening is active.", text_color=GREEN)
         self.render_preview()
 
     def _clear_csv(self):
@@ -474,8 +480,12 @@ class ProfileStudio(ctk.CTk):
         manual=self._scale()
         if manual and manual>0: return manual
         minx,miny,maxx,maxy=st.cell.bounds
-        height=max(maxy-miny, 1.0)
-        return max(height/1000.0, 0.01)   # auto: ~1000 px tall
+        W=max(maxx-minx,1.0); H=max(maxy-miny,1.0)
+        npp=H/1000.0                          # target ~1000 px tall
+        CAP=2400                              # but never exceed this many px on either side
+        if W/npp>CAP: npp=W/CAP
+        if H/npp>CAP: npp=H/CAP
+        return max(npp,0.005)
 
     def _render_to(self,out_path):
         base=proc.build_base(self._params()); st=proc.evaluate(base,self.stack.to_ops()); self._last_state=st
