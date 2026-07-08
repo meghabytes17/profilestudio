@@ -24,3 +24,33 @@ def load_trace(path: str | Path) -> pd.DataFrame:
     if (df["width"] < 0).any() or (df["height"] < 0).any():
         raise ValueError("Width and height values must be non-negative.")
     return df
+
+
+def trace_to_parametric(df) -> dict:
+    """Approximate parametric fields from a width/height trace (for GUI auto-populate).
+
+    Returns keys: feature_height, bottom_width, top_width, and either
+    (bow, bow_height) when the widest point is in the interior, else mid_width.
+    Pitch/space/mask are not derivable from the trace and are left to the user.
+    """
+    import numpy as np
+    d = df.sort_values("height").reset_index(drop=True)
+    h0, h1 = float(d["height"].min()), float(d["height"].max())
+    span = h1 - h0
+    bottom_raw = float(d["width"].iloc[0])
+    top_raw = float(d["width"].iloc[-1])
+    out = {
+        "feature_height": round(span, 3),
+        "bottom_width": round(bottom_raw, 3),
+        "top_width": round(top_raw, 3),
+    }
+    wmax = float(d["width"].max())
+    h_at_max = float(d.loc[d["width"].idxmax(), "height"]) - h0
+    interior = (0.05 * span) < h_at_max < (0.95 * span)  # widest point not at an end
+    if interior and wmax > max(bottom_raw, top_raw) * 1.02:  # a real interior bulge
+        out["bow"] = round(wmax, 3)
+        out["bow_height"] = round(h_at_max, 3)
+    else:
+        mid = float(np.interp(h0 + span / 2, d["height"], d["width"]))
+        out["mid_width"] = round(mid, 3)
+    return out

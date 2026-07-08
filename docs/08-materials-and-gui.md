@@ -35,3 +35,18 @@ scale, a live preview, and Save .bmp. Run with `profile-utility` (no args) or
 
 The brand theme applies to the GUI only; rendered-profile fills use the material
 palette so they stay physically meaningful.
+
+
+## GUI features (v1.1)
+- **Info tooltips** on every parametric field and material role (hover the ⓘ).
+- **nm grid** overlaid on the live preview with width/height tick labels.
+- **Material legend** under the preview maps each color to its region+material, so
+  a color change (e.g. picking `oxide`, which is amber) is never a mystery.
+- **User-defined materials**: "＋ Add material" -> name + color picker; saved to
+  config/materials.json and added to every dropdown. Materials are unlimited; the
+  three *roles* (surround / feature / mask) each choose from the full list.
+- **CSV auto-populate**: loading a trace fills the parametric fields (approx.) via
+  io_csv.trace_to_parametric; pitch/mask aren't in the CSV and stay manual.
+- **Mode-specific panels**: the CSV tab shows only CSV controls (no unused
+  parametric fields); the parametric tab shows the full field set.
+- CSV-trace fills honor the chosen "Fill material" color.

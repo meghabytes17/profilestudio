@@ -21,7 +21,7 @@ from .io_csv import load_trace
 
 
 def render_trace_csv(csv_path: str | Path, out_path: str | Path,
-                     nm_per_px: float | None = None) -> tuple[float, tuple[int, int]]:
+                     nm_per_px: float | None = None, fill_bgr=None) -> tuple[float, tuple[int, int]]:
     """Full pipeline: load trace, scale, build symmetric polygons, render to .bmp.
 
     Returns (nm_per_px_used, (width_px, height_px)).
@@ -31,7 +31,10 @@ def render_trace_csv(csv_path: str | Path, out_path: str | Path,
         nm_per_px = geo.auto_nm_per_pixel(data)
     h, w = geo.image_dims(data, nm_per_px)
     polys = geo.trace_to_polygons(data, h, w, nm_per_px)
-    rnd.render_polygons(polys, (h, w), out_path)
+    if fill_bgr is None:
+        rnd.render_polygons(polys, (h, w), out_path)
+    else:
+        rnd.render_polygons(polys, (h, w), out_path, fill_bgr=fill_bgr)
     return nm_per_px, (w, h)
 
 
