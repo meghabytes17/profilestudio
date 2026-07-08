@@ -21,10 +21,12 @@ def load_trace(path: str | Path) -> pd.DataFrame:
     df = pd.DataFrame({"width": csv[wcol[0]], "height": csv[hcol[0]]}).apply(
         pd.to_numeric, errors="raise"
     )
-    if (df["width"] < 0).any() or (df["height"] < 0).any():
-        raise ValueError("Values must be non-negative: width is the full CD (a size, "
-                         "spanning ±width/2 about the centerline), height is position "
-                         "from the base. Neither can be negative.")
+    if (df["width"] < 0).any():
+        raise ValueError("Width must be non-negative — it is the full CD (a size, "
+                         "spanning ±width/2 about the centerline), not an x-coordinate.")
+    hmin = float(df["height"].min())
+    if hmin < 0:
+        df["height"] = df["height"] - hmin   # height is a position; shift so the base = 0
     return df
 
 
