@@ -10,7 +10,6 @@ import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageFont
 
 from .materials import load_palette, _DEFAULT_CONFIG
-from .profiles import render_trace_csv
 from .io_csv import load_trace
 from . import process as proc
 
@@ -225,15 +224,14 @@ class ProfileStudio(ctk.CTk):
         super().__init__()
         ctk.set_appearance_mode("dark"); self.configure(fg_color=NAVY)
         self.title("Incoming Profile Utility"); self.geometry("1180x820")
-        self.palette=load_palette(); self.csv_path=None; self.mode="Parametric"
+        self.palette=load_palette(); self.opening_trace=None
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
-        self._undo=[]; self._loading=False; self._drag=None
+        self._undo=[]; self._loading=False; self._drag=None; self.smooth_var=ctk.BooleanVar(value=False)
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
         self.grid_columnconfigure(0,weight=1); self.grid_rowconfigure(1,weight=1)
         self._header(); self._body(); self._footer()
-        self._set_mode("Parametric")
         self.after(160, self.render_preview)
 
     def _row(self,parent,r,label,info,widget):
@@ -265,11 +263,8 @@ class ProfileStudio(ctk.CTk):
 
     def _inputs(self,parent):
         card=self._card(parent,"Inputs"); card.grid(row=0,column=0,sticky="nsew",padx=(0,12))
-        seg=ctk.CTkSegmentedButton(card,values=["Parametric","CSV trace"],command=self._set_mode,font=self.uf,fg_color=NAVY_900,
-             selected_color=BLUE,selected_hover_color=BLUE_L,unselected_color=NAVY_900,text_color=SOFT)
-        seg.set("Parametric"); seg.pack(fill="x",padx=18,pady=(0,10))
-
-        self.param_page=ctk.CTkScrollableFrame(card,fg_color="transparent",height=520)
+        self.param_page=ctk.CTkScrollableFrame(card,fg_color="transparent",height=540)
+        self.param_page.pack(fill="both",expand=True,padx=10)
         self.entries={}
 
         matf=ctk.CTkFrame(self.param_page,fg_color="transparent"); matf.pack(fill="x",pady=(0,6))
@@ -289,6 +284,14 @@ class ProfileStudio(ctk.CTk):
         for i,(k,label,default,info) in enumerate(FIELDS,1):
             e=ctk.CTkEntry(bs,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
             e.insert(0,default); e.bind("<KeyRelease>",self._schedule_render); self._row(bs,i,label,info,e); self.entries[k]=e
+        ocsv=ctk.CTkFrame(bs,fg_color="transparent"); ocsv.grid(row=len(FIELDS)+1,column=0,columnspan=3,sticky="ew",padx=6,pady=(6,0))
+        ctk.CTkButton(ocsv,text="Load CSV opening…",command=self._load_csv,font=self.uf,fg_color=NAVY_900,border_width=1,
+                      border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
+        ctk.CTkButton(ocsv,text="Clear",command=self._clear_csv,font=self.uf,fg_color="transparent",border_width=1,
+                      border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700,width=70).pack(side="left",padx=2)
+        self.csv_label=ctk.CTkLabel(bs,text="Opening: rectangular (from Space). Load a CSV to use a trace shape instead.",
+                                    font=self.eb,text_color=MUT,wraplength=520,justify="left")
+        self.csv_label.grid(row=len(FIELDS)+2,column=0,columnspan=3,sticky="w",padx=8,pady=(2,2))
 
         ps=ctk.CTkFrame(self.param_page,fg_color="transparent"); ps.pack(fill="x",pady=(8,8))
         ctk.CTkLabel(ps,text="PROCESS STACK",font=self.eb,text_color=BLUE_L).pack(anchor="w",padx=6)
@@ -309,14 +312,6 @@ class ProfileStudio(ctk.CTk):
         ctk.CTkButton(btns,text="↺ Reset",command=self._reset,font=self.uf,fg_color="transparent",border_width=1,
                       border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
 
-        # ---- csv page ----
-        self.csv_page=ctk.CTkScrollableFrame(card,fg_color="transparent",height=520); self.csv_page.grid_columnconfigure(2,weight=1)
-        ctk.CTkButton(self.csv_page,text="Load CSV…",command=self._load_csv,font=self.uf,fg_color="transparent",border_width=1,
-                      border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).grid(row=0,column=0,columnspan=3,sticky="ew",padx=8,pady=(6,4))
-        self.csv_label=ctk.CTkLabel(self.csv_page,text="no file loaded",font=self.mono,text_color=MUT); self.csv_label.grid(row=1,column=0,columnspan=3,sticky="w",padx=8)
-        self.csv_note=ctk.CTkLabel(self.csv_page,text="Columns: width (full CD, ≥0) and height (≥0).",font=self.eb,text_color=MUT,wraplength=380,justify="left"); self.csv_note.grid(row=2,column=0,columnspan=3,sticky="w",padx=8,pady=(4,8))
-        self.csv_fill=self._mat_menu(self.csv_page,"silicon"); self._row(self.csv_page,3,"Fill material","Color used to fill the trace feature.",self.csv_fill)
-
         common=ctk.CTkFrame(card,fg_color="transparent"); common.pack(fill="x",padx=10,pady=(2,8)); common.grid_columnconfigure(2,weight=1)
         self.scale_entry=ctk.CTkEntry(common,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
         self.scale_entry.insert(0,"0.4"); self.scale_entry.bind("<KeyRelease>",self._schedule_render)
@@ -328,16 +323,13 @@ class ProfileStudio(ctk.CTk):
         self.preview=ctk.CTkLabel(fr,text="",fg_color=NAVY_900); self.preview.pack(expand=True,fill="both",padx=10,pady=10)
         self.legend=ctk.CTkFrame(card,fg_color="transparent"); self.legend.pack(fill="x",padx=18,pady=(0,4))
         bar=ctk.CTkFrame(card,fg_color="transparent"); bar.pack(fill="x",padx=18,pady=(4,16)); bar.grid_columnconfigure(0,weight=1)
-        ctk.CTkLabel(bar,text="24-bit BMP · no anti-aliasing",font=self.eb,text_color=MUT).grid(row=0,column=0,sticky="w")
+        ctk.CTkCheckBox(bar,text="Smooth (anti-alias)",variable=self.smooth_var,command=self.render_preview,
+                        font=self.eb,text_color=SOFT,fg_color=GREEN,hover_color=GREEN_D,checkbox_width=18,checkbox_height=18).grid(row=0,column=0,sticky="w")
         ctk.CTkButton(bar,text="Render",command=self.render_preview,font=self.uf,width=90,fg_color="transparent",border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).grid(row=0,column=1,padx=(0,8))
         ctk.CTkButton(bar,text="Save .bmp…",command=self.save_bmp,font=self.ub,width=120,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).grid(row=0,column=2)
 
     def _footer(self):
         ctk.CTkLabel(self,text="Symmetric · 24-bit BMP · 2D-polygon process model",font=self.eb,text_color=MUT).grid(row=2,column=0,sticky="w",padx=22,pady=(0,10))
-
-    def _set_mode(self,value):
-        self.mode=value; self.param_page.pack_forget(); self.csv_page.pack_forget()
-        (self.param_page if value=="Parametric" else self.csv_page).pack(fill="both",expand=True,padx=10); self.render_preview()
 
     # ---- material stack ----
     def _add_matlayer(self, material="silicon", thickness=20, capture=True):
@@ -370,7 +362,8 @@ class ProfileStudio(ctk.CTk):
         return dict(materials=[(r.mat.get(), r.th.get()) for r in self.matlayer_rows],
                     ops=self.stack.to_ops(),
                     fields={k:self.entries[k].get() for k in self.entries},
-                    scale=self.scale_entry.get())
+                    scale=self.scale_entry.get(),
+                    trace=self.opening_trace)
     def _capture(self):
         if self._loading: return
         self._undo.append(self._snapshot())
@@ -401,6 +394,11 @@ class ProfileStudio(ctk.CTk):
             for k,v in snap["fields"].items():
                 if k in self.entries: self.entries[k].delete(0,"end"); self.entries[k].insert(0,v)
             self.scale_entry.delete(0,"end"); self.scale_entry.insert(0,snap["scale"])
+            self.opening_trace=snap.get("trace")
+            self.csv_label.configure(
+                text=(f"✓ CSV opening loaded ({len(self.opening_trace)} pts)." if self.opening_trace
+                      else "Opening: rectangular (from Space). Load a CSV to use a trace shape instead."),
+                text_color=(GREEN if self.opening_trace else MUT))
         finally:
             self._loading=False
         self.render_preview()
@@ -441,12 +439,19 @@ class ProfileStudio(ctk.CTk):
         path=filedialog.askopenfilename(filetypes=[("CSV","*.csv")])
         if not path: return
         try:
-            load_trace(path)   # validate before committing
+            df=load_trace(path)
         except Exception as exc:
-            self.csv_note.configure(text=f"⚠ {exc}", text_color="#E58B8B"); return
-        self.csv_path=Path(path); self.csv_label.configure(text=self.csv_path.name)
-        self.csv_note.configure(text="✓ Loaded — trace renders as a symmetric profile.", text_color=GREEN)
+            self.csv_label.configure(text=f"⚠ {exc}", text_color="#E58B8B"); return
+        self._capture()
+        self.opening_trace=[(float(w),float(h)) for w,h in zip(df["width"],df["height"])]
+        self.csv_label.configure(text=f"✓ Opening from {Path(path).name} ({len(df)} pts). Space & opening-depth ignored while a CSV opening is loaded.", text_color=GREEN)
         self.render_preview()
+
+    def _clear_csv(self):
+        if self.opening_trace is not None:
+            self._capture(); self.opening_trace=None
+            self.csv_label.configure(text="Opening: rectangular (from Space). Load a CSV to use a trace shape instead.", text_color=MUT)
+            self.render_preview()
 
     def _params(self):
         p={}
@@ -456,6 +461,7 @@ class ProfileStudio(ctk.CTk):
                 try: p[k]=float(v)
                 except ValueError: pass
         p["material_layers"]=[r.to_layer() for r in self.matlayer_rows]
+        if self.opening_trace: p["opening_trace"]=self.opening_trace
         return p
 
     def _scale(self):
@@ -464,18 +470,26 @@ class ProfileStudio(ctk.CTk):
 
     def _render_to(self,out_path):
         npp=self._scale()
-        if self.mode=="CSV trace" and self.csv_path:
-            fill=self.csv_fill.get(); fb=None if fill=="vacuum" else self.palette.bgr(fill)
-            render_trace_csv(self.csv_path,out_path,npp,fill_bgr=fb); self._last_state=None
+        base=proc.build_base(self._params()); st=proc.evaluate(base,self.stack.to_ops()); self._last_state=st
+        ss = 3 if self.smooth_var.get() else 1
+        if ss==1:
+            proc.render_regions(st,self.palette,out_path,npp)     # hard pixels, no AA
         else:
-            base=proc.build_base(self._params()); st=proc.evaluate(base,self.stack.to_ops())
-            proc.render_regions(st,self.palette,out_path,npp); self._last_state=st
+            import cv2
+            hi=Path(tempfile.gettempdir())/"_ipu_hi.bmp"
+            proc.render_regions(st,self.palette,hi,npp/ss)        # supersample
+            minx,miny,maxx,maxy=st.cell.bounds
+            W=max(1,round((maxx-minx)/npp)); H=max(1,round((maxy-miny)/npp))
+            img=cv2.resize(cv2.imread(str(hi)),(W,H),interpolation=cv2.INTER_AREA)
+            cv2.imwrite(str(out_path),img)
 
     def _reset(self):
         self._capture()
         self.stack.clear()
         for r in list(self.matlayer_rows): r.frame.destroy()
         self.matlayer_rows=[]; self._relayout_matstack()
+        self.opening_trace=None
+        self.csv_label.configure(text="Opening: rectangular (from Space). Load a CSV to use a trace shape instead.", text_color=MUT)
         for k,label,default,info in FIELDS:
             self.entries[k].delete(0,"end"); self.entries[k].insert(0,default)
         self.scale_entry.delete(0,"end"); self.scale_entry.insert(0,"0.4")
@@ -483,12 +497,10 @@ class ProfileStudio(ctk.CTk):
 
     def _update_legend(self):
         for w in self.legend.winfo_children(): w.destroy()
-        if self.mode=="CSV trace": mats=[self.csv_fill.get()]
-        elif self._last_state is not None:
-            mats=[]
+        mats=[]
+        if self._last_state is not None:
             for m,_ in self._last_state.regions:
                 if m not in mats: mats.append(m)
-        else: mats=[]
         for mat in mats:
             chip=ctk.CTkFrame(self.legend,fg_color="transparent"); chip.pack(side="left",padx=(0,12))
             sw=ctk.CTkFrame(chip,width=14,height=14,corner_radius=3,fg_color=self.palette.hex(mat),border_width=1,border_color=NAVY_700); sw.pack(side="left",padx=(0,5)); sw.pack_propagate(False)

@@ -93,21 +93,40 @@ def mask_polygon(width, height, base_y, corner="square", facet_angle=45.0, radiu
 #   trench    : inverted default — vacuum trench carved into surround + mask
 #   line      : a solid feature (CD curve) standing in vacuum + mask
 # --------------------------------------------------------------------------- #
-def _build_material_stack(p: dict) -> State:
-    """Vertical stack of material layers with a centered rectangular opening.
+def _trace_opening(trace, total_h):
+    """Build a symmetric opening polygon from a width/height trace, positioned so the
+    trace's top sits at the top of the material stack (opening cut from the top down)."""
+    pts = sorted(((float(w), float(h)) for w, h in trace), key=lambda t: t[1])
+    if not pts:
+        return None
+    hmax = max(h for _, h in pts)
+    off = total_h - hmax                      # align trace top with stack top
+    right = [(w / 2.0, h + off) for w, h in pts]
+    left = [(-w / 2.0, h + off) for w, h in pts][::-1]
+    poly = Polygon(right + left)
+    return poly if poly.is_valid else poly.buffer(0)
 
-    Layers are given TOP-first (row 1 = top of the stack). Height = sum of thicknesses,
-    plus `top_vacuum` of empty space above (default 20 nm) so there is room to deposit
-    on top. Opening: width `space`, cut from the top down by `opening_depth`.
+
+def _build_material_stack(p: dict) -> State:
+    """Vertical stack of material layers with a centered opening.
+
+    Layers are TOP-first (row 1 = top). Height = sum of thicknesses + `top_vacuum`
+    (default 20 nm). The opening is either a rectangle (`space` wide, cut down by
+    `opening_depth`) or, if `opening_trace` is given, the shape of that CSV trace
+    (cut from the top down). Empty stack -> blank canvas.
     """
     pitch = p.get("pitch", 100.0)
     space = p.get("space", 0.0) or 0.0
     top_vac = p.get("top_vacuum", 20.0) or 0.0
     layers = [l for l in p.get("material_layers", []) if l.get("thickness", 0) > 0]
     total = sum(l["thickness"] for l in layers)
-    depth = p.get("opening_depth")
-    open_bottom = 0.0 if (depth is None or depth <= 0 or depth >= total) else (total - depth)
-    opening = box(-space / 2, open_bottom, space / 2, total) if space > 0 else None
+    trace = p.get("opening_trace")
+    if trace:
+        opening = _trace_opening(trace, total)
+    else:
+        depth = p.get("opening_depth")
+        open_bottom = 0.0 if (depth is None or depth <= 0 or depth >= total) else (total - depth)
+        opening = box(-space / 2, open_bottom, space / 2, total) if space > 0 else None
     cell = box(-pitch / 2, 0, pitch / 2, max(total + top_vac, 1.0))
     st = State(cell, [])
     y = 0.0

@@ -21,6 +21,10 @@ def load_trace(path: str | Path) -> pd.DataFrame:
     df = pd.DataFrame({"width": csv[wcol[0]], "height": csv[hcol[0]]}).apply(
         pd.to_numeric, errors="raise"
     )
+    if df.isna().any().any():
+        nw = int(df["width"].notna().sum()); nh = int(df["height"].notna().sum())
+        raise ValueError(f"CSV has missing values (width entries: {nw}, height entries: {nh}). "
+                         "Each row needs exactly one width and one height.")
     if (df["width"] < 0).any():
         raise ValueError("Width must be non-negative — it is the full CD (a size, "
                          "spanning ±width/2 about the centerline), not an x-coordinate.")
