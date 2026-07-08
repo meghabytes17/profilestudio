@@ -1,0 +1,19 @@
+{
+  "_comment": "Central material palette for RENDERED PROFILES (independent of GUI brand theme). Colors are RGB. 'vacuum' is a first-class material. Rename keys freely; names are optional labels.",
+  "defaults": { "surround_material": "silicon", "feature_material": "vacuum", "mask_material": "hardmask" },
+  "materials": {
+    "vacuum":      { "rgb": [0, 0, 0],       "label": "Vacuum / open space" },
+    "silicon":     { "rgb": [0, 162, 232],   "label": "Silicon" },
+    "oxide":       { "rgb": [255, 181, 81],  "label": "Oxide" },
+    "nitride":     { "rgb": [173, 219, 36],  "label": "Nitride" },
+    "poly":        { "rgb": [235, 63, 20],   "label": "Poly" },
+    "hardmask":    { "rgb": [127, 127, 127], "label": "Hard mask" },
+    "metal":       { "rgb": [202, 214, 232], "label": "Metal" },
+    "barrier":     { "rgb": [40, 61, 93],    "label": "Barrier" },
+    "photoresist": { "rgb": [255, 151, 223], "label": "Photoresist" },
+    "spacer":      { "rgb": [163, 73, 164],  "label": "Spacer" },
+    "lowk":        { "rgb": [69, 163, 186],  "label": "Low-k" },
+    "highk":       { "rgb": [76, 11, 194],   "label": "High-k" },
+    "substrate":   { "rgb": [185, 122, 87],  "label": "Substrate" }
+  }
+}
