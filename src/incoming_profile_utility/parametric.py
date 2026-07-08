@@ -34,41 +34,7 @@ def _resolve_cell(p: dict) -> float:
     raise ValueError("Provide 'pitch', or both 'space' and 'linewidth'.")
 
 
-def _half_width(ys, H, bottom, top, bow=None, bow_height=None, mid_width=None):
-    """Half-width (distance from centerline) vs height.
-
-    Priority:
-      1. bow given  -> smooth bulge whose MAXIMUM CD == bow, located at bow_height
-         (default H/2). Two parabolas meet with zero slope at the apex, so the peak
-         is exactly at (bow_height, bow) and the walls curve smoothly into it.
-      2. mid_width given -> parabola through bottom / mid / top (gentle curve, no peak).
-      3. neither -> straight linear taper from bottom to top.
-    """
-    hb, ht = bottom / 2, top / 2
-
-    if bow is not None:
-        if bow < max(bottom, top) - 1e-9:
-            raise ValueError(
-                "bow is the max CD, so it must be >= bottom_width and top_width. "
-                "For a pinched/waisted wall, use mid_width instead."
-            )
-        hv = bow / 2
-        eps = H * 1e-3
-        hbow = H / 2 if bow_height is None else float(bow_height)
-        hbow = min(max(hbow, eps), H - eps)
-        out = np.empty_like(ys, dtype=float)
-        lo = ys <= hbow
-        out[lo] = hv + (hb - hv) / hbow**2 * (ys[lo] - hbow) ** 2
-        out[~lo] = hv + (ht - hv) / (H - hbow) ** 2 * (ys[~lo] - hbow) ** 2
-        return np.clip(out, 0, None)
-
-    if mid_width is not None:
-        coef = np.polyfit([0.0, H / 2, H], [hb, mid_width / 2, ht], 2)
-        return np.clip(np.polyval(coef, ys), 0, None)
-
-    return hb + (ht - hb) * (ys / H)
-
-
+from ._curves import half_width_curve as _half_width
 def build_line(p: dict, nm_per_px: float):
     """Build (layers, dims) for a single symmetric line profile.
 

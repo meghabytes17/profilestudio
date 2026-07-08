@@ -1,0 +1,73 @@
+"""Process-op engine + mask shapes."""
+import numpy as np
+from shapely.geometry import box
+
+from incoming_profile_utility.process import (
+    build_base, evaluate, mask_polygon, conformal_deposit, fill, etch, planarize,
+    planar_deposit,
+)
+
+BASE = dict(pitch=120, feature_height=200, bottom_width=40, top_width=60, mask_height=0)
+
+
+def _top_width(poly, top):
+    band = poly.intersection(box(-999, top - 1.0, 999, top - 0.2))
+    return 0.0 if band.is_empty else band.bounds[2] - band.bounds[0]
+
+
+def test_mask_square_facet_round():
+    w, h, y = 40, 50, 100
+    top = y + h
+    sq = mask_polygon(w, h, y, "square")
+    fac = mask_polygon(w, h, y, "facet", facet_angle=45)
+    rnd = mask_polygon(w, h, y, "round", radius=12)
+    assert abs(sq.area - w * h) < 1e-6
+    assert abs(_top_width(sq, top) - w) < 0.5          # square: full width at top
+    assert _top_width(fac, top) < w - 5                # facet: narrower at top
+    assert fac.area < sq.area and rnd.area < sq.area    # both remove corner material
+    # facet angle steeper -> less removed (closer to square)
+    steep = mask_polygon(w, h, y, "facet", facet_angle=75)
+    assert steep.area > fac.area
+
+
+def test_conformal_deposit_grows_solid_and_nests():
+    base = build_base(BASE)
+    a0 = base.solid().area
+    st = conformal_deposit(base, "oxide", 8)
+    assert st.solid().area > a0                         # solid grew
+    assert st.regions[-1][0] == "oxide"
+
+
+def test_fill_closes_open_region():
+    base = build_base(BASE)
+    open0 = base.open().area
+    st = fill(base, "tungsten", up_to=BASE["feature_height"])
+    assert st.open().area < open0 * 0.15                # trench largely filled
+
+
+def test_isotropic_etch_removes_material():
+    base = build_base(BASE)
+    st = etch(base, 6, mode="isotropic")
+    assert st.solid().area < base.solid().area
+
+
+def test_planarize_cuts_above_height():
+    base = build_base(dict(**{**BASE, "mask_height": 40}))
+    st = planarize(base, 200)                            # cut the mask off at feature top
+    assert st.solid().bounds[3] <= 200 + 1e-6
+
+
+def test_planar_deposit_raises_top():
+    base = build_base(BASE)
+    top0 = base.solid().bounds[3]
+    st = planar_deposit(base, "oxide", 15)
+    assert st.solid().bounds[3] >= top0 + 14
+
+
+def test_evaluate_runs_full_stack():
+    ops = [dict(op="conformal_deposit", material="oxide", thickness=7),
+           dict(op="conformal_deposit", material="nitride", thickness=6),
+           dict(op="fill", material="tungsten")]
+    st = evaluate(build_base(BASE), ops)
+    mats = [m for m, _ in st.regions]
+    assert mats[-3:] == ["oxide", "nitride", "tungsten"]
