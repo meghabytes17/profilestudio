@@ -226,7 +226,7 @@ class ProfileStudio(ctk.CTk):
         self.title("Incoming Profile Utility"); self.geometry("1180x820")
         self.palette=load_palette(); self.opening_trace=None
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
-        self._undo=[]; self._loading=False; self._drag=None; self.smooth_var=ctk.BooleanVar(value=False)
+        self._undo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_var=ctk.BooleanVar(value=False)
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
@@ -313,9 +313,9 @@ class ProfileStudio(ctk.CTk):
                       border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
 
         common=ctk.CTkFrame(card,fg_color="transparent"); common.pack(fill="x",padx=10,pady=(2,8)); common.grid_columnconfigure(2,weight=1)
-        self.scale_entry=ctk.CTkEntry(common,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
-        self.scale_entry.insert(0,"0.4"); self.scale_entry.bind("<KeyRelease>",self._schedule_render)
-        self._row(common,0,"Scale (nm/px)","Nanometers per pixel.",self.scale_entry)
+        self.scale_entry=ctk.CTkEntry(common,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120,placeholder_text="auto")
+        self.scale_entry.bind("<KeyRelease>",self._schedule_render)
+        self._row(common,0,"Resolution (nm/px)","Blank = auto-fit (~900 px on the long side). Set a value to fix the nm-per-pixel calibration (smaller = higher resolution / bigger image).",self.scale_entry)
 
     def _preview_card(self,parent):
         card=self._card(parent,"Preview"); card.grid(row=0,column=1,sticky="nsew")
@@ -465,12 +465,21 @@ class ProfileStudio(ctk.CTk):
         return p
 
     def _scale(self):
-        try: return float(self.scale_entry.get())
-        except ValueError: return 0.4
+        v=self.scale_entry.get().strip()
+        if not v or v.lower()=="auto": return None
+        try: return float(v)
+        except ValueError: return None
+
+    def _resolve_npp(self, st):
+        manual=self._scale()
+        if manual and manual>0: return manual
+        minx,miny,maxx,maxy=st.cell.bounds
+        dim=max(maxx-minx, maxy-miny, 1.0)
+        return max(dim/900.0, 0.02)   # auto: ~900 px on the long side
 
     def _render_to(self,out_path):
-        npp=self._scale()
         base=proc.build_base(self._params()); st=proc.evaluate(base,self.stack.to_ops()); self._last_state=st
+        npp=self._resolve_npp(st); self._last_npp=npp
         ss = 3 if self.smooth_var.get() else 1
         if ss==1:
             proc.render_regions(st,self.palette,out_path,npp)     # hard pixels, no AA
@@ -492,7 +501,7 @@ class ProfileStudio(ctk.CTk):
         self.csv_label.configure(text="Opening: rectangular (from Space). Load a CSV to use a trace shape instead.", text_color=MUT)
         for k,label,default,info in FIELDS:
             self.entries[k].delete(0,"end"); self.entries[k].insert(0,default)
-        self.scale_entry.delete(0,"end"); self.scale_entry.insert(0,"0.4")
+        self.scale_entry.delete(0,"end")  # blank = auto
         self.render_preview()
 
     def _update_legend(self):
@@ -515,7 +524,7 @@ class ProfileStudio(ctk.CTk):
         if self._loading: return
         try:
             tmp=Path(tempfile.gettempdir())/"_ipu_preview.bmp"; self._render_to(tmp)
-            disp=compose_preview(tmp,self._scale(),target_h=440)
+            disp=compose_preview(tmp,self._last_npp,target_h=440)
             self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
             self._update_legend()
         except Exception as exc:
