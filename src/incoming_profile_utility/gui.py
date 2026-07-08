@@ -73,14 +73,16 @@ class Tooltip:
 
 
 class OpRow:
+    NEEDS_MAT = ("Deposit · conformal", "Deposit · planar", "Fill")
+
     def __init__(self, app, op_label, material, num):
         self.app=app
         self.frame=ctk.CTkFrame(app.op_container, fg_color=NAVY_900, corner_radius=8, border_width=1, border_color=NAVY_700)
         self.badge=ctk.CTkFrame(self.frame, fg_color=BLUE, corner_radius=999, width=22, height=22)
         self.badge.pack(side="left", padx=(10,8), pady=8); self.badge.pack_propagate(False)
         self.badge_lbl=ctk.CTkLabel(self.badge, text="1", font=app.eb, text_color=ON); self.badge_lbl.pack(expand=True)
-        self.optype=ctk.CTkOptionMenu(self.frame, values=OP_LABELS, width=150, font=app.uf, fg_color=NAVY_800,
-                     button_color=BLUE, button_hover_color=BLUE_L, text_color=ON, command=lambda _v: app._schedule_render())
+        self.optype=ctk.CTkOptionMenu(self.frame, values=OP_LABELS, width=148, font=app.uf, fg_color=NAVY_800,
+                     button_color=BLUE, button_hover_color=BLUE_L, text_color=ON, command=self._on_type)
         self.optype.set(op_label); self.optype.pack(side="left", padx=4, pady=8)
         self.mat=ctk.CTkOptionMenu(self.frame, values=app.palette.names(), width=104, font=app.uf, fg_color=NAVY_800,
                      button_color=BLUE, button_hover_color=BLUE_L, text_color=ON, command=lambda _v: app._schedule_render())
@@ -91,6 +93,16 @@ class OpRow:
         for sym,cmd in (("↑",lambda:app._move_op(self,-1)),("↓",lambda:app._move_op(self,1)),("✕",lambda:app._remove_op(self))):
             ctk.CTkButton(self.frame, text=sym, width=26, font=app.uf, fg_color="transparent", border_width=1,
                           border_color=NAVY_700, text_color=SOFT, hover_color=NAVY_700, command=cmd).pack(side="left", padx=2)
+        self._sync()
+
+    def _on_type(self, _v):
+        self._sync(); self.app._schedule_render()
+
+    def _sync(self):
+        if self.optype.get() in self.NEEDS_MAT:
+            self.mat.configure(state="normal")
+        else:
+            self.mat.configure(state="disabled")   # material not used by etch / planarize
 
     def to_op(self):
         lbl=self.optype.get(); mat=self.mat.get()
@@ -118,7 +130,6 @@ class ProfileStudio(ctk.CTk):
         self.grid_columnconfigure(0,weight=1); self.grid_rowconfigure(1,weight=1)
         self._header(); self._body(); self._footer()
         self._set_mode("Parametric")
-        self._add_op("Deposit · conformal","oxide",8); self._add_op("Deposit · conformal","nitride",6)
         self.after(160, self.render_preview)
 
     def _row(self,parent,r,label,info,widget):
@@ -154,33 +165,48 @@ class ProfileStudio(ctk.CTk):
              selected_color=BLUE,selected_hover_color=BLUE_L,unselected_color=NAVY_900,text_color=SOFT)
         seg.set("Parametric"); seg.pack(fill="x",padx=18,pady=(0,10))
 
-        # ---- parametric page ----
-        self.param_page=ctk.CTkScrollableFrame(card,fg_color="transparent",height=520); self.param_page.grid_columnconfigure(2,weight=1)
-        self.entries={}
-        for i,(k,label,default,info) in enumerate(FIELDS):
-            e=ctk.CTkEntry(self.param_page,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
-            e.insert(0,default); e.bind("<KeyRelease>",self._schedule_render); self._row(self.param_page,i,label,info,e); self.entries[k]=e
-        r=len(FIELDS)
-        ctk.CTkLabel(self.param_page,text="MATERIALS & MASK",font=self.eb,text_color=BLUE_L).grid(row=r,column=0,columnspan=3,sticky="w",padx=8,pady=(12,2))
-        self.opt={}
-        self.opt["surround_material"]=self._mat_menu(self.param_page,"silicon"); self._row(self.param_page,r+1,"Surround","Bulk material the trench is carved into.",self.opt["surround_material"])
-        self.opt["mask_material"]=self._mat_menu(self.param_page,"hardmask"); self._row(self.param_page,r+2,"Mask material","Material of the mask on top.",self.opt["mask_material"])
-        self.mask_shape=ctk.CTkSegmentedButton(self.param_page,values=["Square","Facet","Round"],command=lambda _v:self.render_preview(),font=self.uf,
-                        fg_color=NAVY_900,selected_color=BLUE,selected_hover_color=BLUE_L,unselected_color=NAVY_900,text_color=SOFT)
-        self.mask_shape.set("Square"); self._row(self.param_page,r+3,"Mask shape","Mask corner style (top corners, symmetric).",self.mask_shape)
-        self.entries["mask_facet_angle"]=ctk.CTkEntry(self.param_page,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
-        self.entries["mask_facet_angle"].insert(0,"60"); self.entries["mask_facet_angle"].bind("<KeyRelease>",self._schedule_render)
-        self._row(self.param_page,r+4,"Facet angle (°)","Facet sidewall angle from horizontal; 90 = square.",self.entries["mask_facet_angle"])
-        self.entries["mask_radius"]=ctk.CTkEntry(self.param_page,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
-        self.entries["mask_radius"].insert(0,"12"); self.entries["mask_radius"].bind("<KeyRelease>",self._schedule_render)
-        self._row(self.param_page,r+5,"Round radius (nm)","Corner radius when Mask shape = Round.",self.entries["mask_radius"])
+        # ---- parametric page (sections packed in order; process stack FIRST) ----
+        self.param_page=ctk.CTkScrollableFrame(card,fg_color="transparent",height=520)
+        self.entries={}; self.opt={}
 
-        ctk.CTkLabel(self.param_page,text="PROCESS STACK   (top → bottom = first → last)",font=self.eb,text_color=BLUE_L).grid(row=r+6,column=0,columnspan=3,sticky="w",padx=8,pady=(12,2))
-        self.op_container=ctk.CTkFrame(self.param_page,fg_color="transparent"); self.op_container.grid(row=r+7,column=0,columnspan=3,sticky="ew",padx=2)
-        ctk.CTkButton(self.param_page,text="＋ Add operation",command=lambda:self._add_op(),font=self.uf,fg_color="transparent",border_width=1,
-                      border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).grid(row=r+8,column=0,columnspan=3,sticky="ew",padx=8,pady=(6,4))
-        ctk.CTkButton(self.param_page,text="＋ Add material",command=self._add_material,font=self.uf,fg_color="transparent",border_width=1,
-                      border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).grid(row=r+9,column=0,columnspan=3,sticky="ew",padx=8,pady=(0,4))
+        # 1) PROCESS STACK
+        ps=ctk.CTkFrame(self.param_page,fg_color="transparent"); ps.pack(fill="x",pady=(0,8))
+        ctk.CTkLabel(ps,text="PROCESS STACK",font=self.eb,text_color=BLUE_L).pack(anchor="w",padx=6)
+        ctk.CTkLabel(ps,text="Steps run in order: ① at the top happens first, then ②, ③ … each one acts on the result of the steps above it.",
+                     font=ctk.CTkFont(size=11),text_color=MUT,wraplength=500,justify="left").pack(anchor="w",padx=6,pady=(0,6))
+        addbar=ctk.CTkFrame(ps,fg_color="transparent"); addbar.pack(fill="x",padx=4)
+        for text,kind in [("＋ Deposit","deposit"),("＋ Fill","fill"),("＋ Etch","etch"),("＋ Planarize","planarize")]:
+            ctk.CTkButton(addbar,text=text,command=lambda k=kind:self._add_op(k),font=self.uf,fg_color=NAVY_900,
+                          border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700,width=10).pack(side="left",expand=True,fill="x",padx=2)
+        self.op_container=ctk.CTkFrame(ps,fg_color="transparent"); self.op_container.pack(fill="x",pady=4)
+        self.empty_hint=ctk.CTkLabel(ps,text="No steps yet — add one above to start building.",font=ctk.CTkFont(size=11),text_color=MUT)
+        self.empty_hint.pack(anchor="w",padx=6)
+        ctk.CTkButton(ps,text="↺ Reset  (clear steps & restore defaults)",command=self._reset,font=self.uf,fg_color="transparent",
+                      border_width=1,border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700).pack(fill="x",padx=4,pady=(6,0))
+
+        # 2) BASE FEATURE
+        bs=ctk.CTkFrame(self.param_page,fg_color="transparent"); bs.pack(fill="x",pady=(4,4)); bs.grid_columnconfigure(2,weight=1)
+        ctk.CTkLabel(bs,text="BASE FEATURE  (the starting trench the steps act on)",font=self.eb,text_color=BLUE_L).grid(row=0,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
+        for i,(k,label,default,info) in enumerate(FIELDS,1):
+            e=ctk.CTkEntry(bs,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
+            e.insert(0,default); e.bind("<KeyRelease>",self._schedule_render); self._row(bs,i,label,info,e); self.entries[k]=e
+
+        # 3) MATERIALS & MASK
+        ms=ctk.CTkFrame(self.param_page,fg_color="transparent"); ms.pack(fill="x",pady=(4,4)); ms.grid_columnconfigure(2,weight=1)
+        ctk.CTkLabel(ms,text="MATERIALS & MASK",font=self.eb,text_color=BLUE_L).grid(row=0,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
+        self.opt["surround_material"]=self._mat_menu(ms,"silicon"); self._row(ms,1,"Surround","Bulk material the trench is carved into.",self.opt["surround_material"])
+        self.opt["mask_material"]=self._mat_menu(ms,"hardmask"); self._row(ms,2,"Mask material","Material of the mask on top.",self.opt["mask_material"])
+        self.mask_shape=ctk.CTkSegmentedButton(ms,values=["Square","Facet","Round"],command=lambda _v:self.render_preview(),font=self.uf,
+                        fg_color=NAVY_900,selected_color=BLUE,selected_hover_color=BLUE_L,unselected_color=NAVY_900,text_color=SOFT)
+        self.mask_shape.set("Square"); self._row(ms,3,"Mask shape","Mask corner style (top corners, symmetric).",self.mask_shape)
+        self.entries["mask_facet_angle"]=ctk.CTkEntry(ms,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
+        self.entries["mask_facet_angle"].insert(0,"60"); self.entries["mask_facet_angle"].bind("<KeyRelease>",self._schedule_render)
+        self._row(ms,4,"Facet angle (°)","Facet sidewall angle from horizontal; 90 = square.",self.entries["mask_facet_angle"])
+        self.entries["mask_radius"]=ctk.CTkEntry(ms,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
+        self.entries["mask_radius"].insert(0,"12"); self.entries["mask_radius"].bind("<KeyRelease>",self._schedule_render)
+        self._row(ms,5,"Round radius (nm)","Corner radius when Mask shape = Round.",self.entries["mask_radius"])
+        ctk.CTkButton(ms,text="＋ Add material",command=self._add_material,font=self.uf,fg_color="transparent",border_width=1,
+                      border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).grid(row=6,column=0,columnspan=3,sticky="ew",padx=8,pady=(8,4))
 
         # ---- csv page ----
         self.csv_page=ctk.CTkScrollableFrame(card,fg_color="transparent",height=520); self.csv_page.grid_columnconfigure(2,weight=1)
@@ -209,8 +235,16 @@ class ProfileStudio(ctk.CTk):
         ctk.CTkLabel(self,text="Symmetric · 24-bit BMP · 2D-polygon process model",font=self.eb,text_color=MUT).grid(row=2,column=0,sticky="w",padx=22,pady=(0,10))
 
     # ---- ops management ----
-    def _add_op(self, op_label="Deposit · conformal", material="oxide", num=6):
-        row=OpRow(self, op_label, material, num); self.op_rows.append(row); self._relayout_ops(); self.render_preview()
+    OP_PRESETS = {
+        "deposit":   ("Deposit · conformal", "oxide", 8),
+        "fill":      ("Fill", "tungsten", 0),
+        "etch":      ("Etch · isotropic", "oxide", 5),
+        "planarize": ("Planarize", "oxide", 240),
+    }
+
+    def _add_op(self, kind="deposit"):
+        label, material, num = self.OP_PRESETS.get(kind, self.OP_PRESETS["deposit"])
+        row=OpRow(self, label, material, num); self.op_rows.append(row); self._relayout_ops(); self.render_preview()
     def _remove_op(self,row):
         row.frame.destroy(); self.op_rows.remove(row); self._relayout_ops(); self.render_preview()
     def _move_op(self,row,delta):
@@ -220,6 +254,20 @@ class ProfileStudio(ctk.CTk):
     def _relayout_ops(self):
         for n,row in enumerate(self.op_rows,1):
             row.frame.pack_forget(); row.frame.pack(fill="x",padx=6,pady=4); row.badge_lbl.configure(text=str(n))
+        self.empty_hint.pack_forget()
+        if not self.op_rows:
+            self.empty_hint.pack(anchor="w",padx=6)
+
+    def _reset(self):
+        for row in list(self.op_rows): row.frame.destroy()
+        self.op_rows=[]
+        for k,label,default,info in FIELDS:
+            self.entries[k].delete(0,"end"); self.entries[k].insert(0,default)
+        self.entries["mask_facet_angle"].delete(0,"end"); self.entries["mask_facet_angle"].insert(0,"60")
+        self.entries["mask_radius"].delete(0,"end"); self.entries["mask_radius"].insert(0,"12")
+        self.opt["surround_material"].set("silicon"); self.opt["mask_material"].set("hardmask")
+        self.mask_shape.set("Square"); self.scale_entry.delete(0,"end"); self.scale_entry.insert(0,"0.4")
+        self._relayout_ops(); self.render_preview()
 
     def _set_mode(self,value):
         self.mode=value; self.param_page.pack_forget(); self.csv_page.pack_forget()
