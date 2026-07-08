@@ -93,7 +93,31 @@ def mask_polygon(width, height, base_y, corner="square", facet_angle=45.0, radiu
 #   trench    : inverted default — vacuum trench carved into surround + mask
 #   line      : a solid feature (CD curve) standing in vacuum + mask
 # --------------------------------------------------------------------------- #
+def _build_material_stack(p: dict) -> State:
+    """New primary model: a vertical stack of material layers (bottom->top), each a
+    full-cell band, with a single centered rectangular opening of width `space` cut
+    through them. Height = sum of layer thicknesses. Empty stack -> blank canvas."""
+    pitch = p.get("pitch", 100.0)
+    space = p.get("space", 0.0) or 0.0
+    layers = [l for l in p.get("material_layers", []) if l.get("thickness", 0) > 0]
+    total = sum(l["thickness"] for l in layers)
+    cell = box(-pitch / 2, 0, pitch / 2, max(total, 1.0))
+    st = State(cell, [])
+    y = 0.0
+    for l in layers:
+        th = l["thickness"]
+        band = box(-pitch / 2, y, pitch / 2, y + th)
+        if space > 0:
+            band = band.difference(box(-space / 2, y, space / 2, y + th))   # opening = space, exactly
+        st.add(l["material"], band)
+        y += th
+    return st
+
+
 def build_base(p: dict) -> State:
+    if p.get("material_layers") is not None:
+        return _build_material_stack(p)
+    # --- legacy base_type path (kept for programmatic use / tests) ---
     H = p["feature_height"]
     bottom, top = p.get("bottom_width", 0.0), p.get("top_width", 0.0)
     pitch = p.get("pitch") or (p["space"] + p.get("linewidth", top))
