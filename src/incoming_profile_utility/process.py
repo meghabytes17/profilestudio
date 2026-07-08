@@ -95,20 +95,23 @@ def mask_polygon(width, height, base_y, corner="square", facet_angle=45.0, radiu
 # --------------------------------------------------------------------------- #
 def _build_material_stack(p: dict) -> State:
     """New primary model: a vertical stack of material layers (bottom->top), each a
-    full-cell band, with a single centered rectangular opening of width `space` cut
-    through them. Height = sum of layer thicknesses. Empty stack -> blank canvas."""
+    full-cell band, with a centered rectangular opening of width `space` cut from the
+    TOP down by `opening_depth` (default: through the whole stack). Empty -> blank."""
     pitch = p.get("pitch", 100.0)
     space = p.get("space", 0.0) or 0.0
     layers = [l for l in p.get("material_layers", []) if l.get("thickness", 0) > 0]
     total = sum(l["thickness"] for l in layers)
+    depth = p.get("opening_depth")
+    open_bottom = 0.0 if (depth is None or depth <= 0 or depth >= total) else (total - depth)
+    opening = box(-space / 2, open_bottom, space / 2, total) if space > 0 else None
     cell = box(-pitch / 2, 0, pitch / 2, max(total, 1.0))
     st = State(cell, [])
     y = 0.0
     for l in layers:
         th = l["thickness"]
         band = box(-pitch / 2, y, pitch / 2, y + th)
-        if space > 0:
-            band = band.difference(box(-space / 2, y, space / 2, y + th))   # opening = space, exactly
+        if opening is not None:
+            band = band.difference(opening)   # opening = space wide, top-down to `depth`
         st.add(l["material"], band)
         y += th
     return st

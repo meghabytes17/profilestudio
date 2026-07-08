@@ -102,3 +102,18 @@ def test_repeat_block_expands():
     assert len(st.regions) == 1 + 8 * 2                 # substrate + 8×(2 films)
     mats = [m for m, _ in st.regions]
     assert mats.count("sige") == 8 and mats.count("silicon") == 9
+
+
+def test_opening_depth():
+    from incoming_profile_utility.process import build_base
+    layers = [dict(material="silicon", thickness=40),
+              dict(material="oxide", thickness=20),
+              dict(material="nitride", thickness=20)]  # total 80
+    # full-depth opening: bottom (silicon) layer is split by the opening
+    full = build_base(dict(material_layers=layers, pitch=120, space=50))
+    sil_full = [g for m, g in full.regions if m == "silicon"][0]
+    # shallow opening (30 from top): only top layers cut; silicon stays a solid band
+    shallow = build_base(dict(material_layers=layers, pitch=120, space=50, opening_depth=30))
+    sil_shallow = [g for m, g in shallow.regions if m == "silicon"][0]
+    assert sil_shallow.area > sil_full.area                 # bottom layer no longer notched
+    assert abs(sil_shallow.area - 120 * 40) < 1e-6          # full solid band (pitch*thickness)

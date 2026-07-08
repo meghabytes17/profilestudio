@@ -27,6 +27,7 @@ ON="#FFFFFF"; SOFT="#AEB9C8"; MUT="#8B99AC"
 FIELDS = [
     ("pitch","Pitch (nm)","120","Width of one repeating unit cell = line + opening."),
     ("space","Space · opening (nm)","50","Width of the centered opening cut through the stack. line width = pitch − space."),
+    ("opening_depth","Opening depth (nm)","","How far down from the TOP of the stack the opening is cut. Blank = all the way through."),
 ]
 OP_LABELS = ["Deposit · conformal","Deposit · planar","Fill","Etch · isotropic","Etch · anisotropic","Planarize"]
 OP_PRESETS = {"deposit":("Deposit · conformal","oxide",8),"fill":("Fill","tungsten",0),
