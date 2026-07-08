@@ -191,9 +191,17 @@ OPS = {
 
 
 def evaluate(base: State, ops: list[dict]) -> State:
-    """Run an ordered op-list. Each op: {'op': name, ...params}."""
+    """Run an ordered op-list. Each op: {'op': name, ...params}.
+
+    A {'op':'repeat', 'times':N, 'steps':[...]} group expands to N passes of its
+    sub-steps (nesting allowed), which is how superlattices/multilayer stacks are built.
+    """
     state = base
     for op in ops:
+        if op.get("op") == "repeat":
+            for _ in range(max(1, int(op.get("times", 1)))):
+                state = evaluate(state, op.get("steps", []))
+            continue
         fn = OPS[op["op"]]
         kwargs = {k: v for k, v in op.items() if k != "op"}
         state = fn(state, **kwargs)

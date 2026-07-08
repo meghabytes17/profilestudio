@@ -90,3 +90,15 @@ def test_superlattice_from_substrate():
     st = evaluate(base, ops)
     assert len(st.regions) == 7                                           # substrate + 6 films
     assert st.solid().bounds[3] > 20                                      # stack grew upward
+
+
+def test_repeat_block_expands():
+    from incoming_profile_utility.process import build_base, evaluate
+    base = build_base(dict(base_type="substrate", pitch=100, feature_height=20, mask_height=0))
+    ops = [dict(op="repeat", times=8, steps=[
+        dict(op="planar_deposit", material="silicon", thickness=15),
+        dict(op="planar_deposit", material="sige", thickness=12)])]
+    st = evaluate(base, ops)
+    assert len(st.regions) == 1 + 8 * 2                 # substrate + 8×(2 films)
+    mats = [m for m, _ in st.regions]
+    assert mats.count("sige") == 8 and mats.count("silicon") == 9
