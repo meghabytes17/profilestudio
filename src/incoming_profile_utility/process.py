@@ -97,36 +97,51 @@ def build_base(p: dict) -> State:
     H = p["feature_height"]
     bottom, top = p.get("bottom_width", 0.0), p.get("top_width", 0.0)
     pitch = p.get("pitch") or (p["space"] + p.get("linewidth", top))
-    mask_h = p.get("mask_height", 0.0)
     base_type = p.get("base_type", "trench")
-    total_h = H + mask_h
+
+    # mask as an ordered stack of layers (bottom -> top). Back-compat: a single
+    # mask_material + mask_height becomes a one-layer stack.
+    mask_layers = p.get("mask_layers")
+    if mask_layers is None:
+        mh = p.get("mask_height", 0.0)
+        mask_layers = [dict(material=p.get("mask_material", "hardmask"), height=mh)] if mh > 0 else []
+    mask_layers = [l for l in mask_layers if l.get("height", 0) > 0]
+    total_mask = sum(l["height"] for l in mask_layers)
+    total_h = H + total_mask
     cell = box(-pitch / 2, 0, pitch / 2, max(total_h, 1.0))
     st = State(cell, [])
     surround = p.get("surround_material", "silicon")
 
     if base_type == "blank":
-        return st                                     # empty canvas; start with a deposit
+        return st
     if base_type == "substrate":
-        st.add(surround, box(-pitch / 2, 0, pitch / 2, H))   # flat slab to build on
+        st.add(surround, box(-pitch / 2, 0, pitch / 2, H))
         return st
 
-    # curve for trench / line
     ys = np.linspace(0, H, 240)
     xs = half_width_curve(ys, H, bottom, top, p.get("bow"), p.get("bow_height"), p.get("mid_width"))
     feature = Polygon([(x, y) for x, y in zip(xs, ys)] + [(-x, y) for x, y in zip(xs, ys)][::-1])
 
-    if base_type == "line":                           # solid feature standing in vacuum
+    if base_type == "line":
         st.add(p.get("feature_material", surround), feature)
-    else:                                             # trench (inverted default)
+    else:
         st.add(surround, box(-pitch / 2, 0, pitch / 2, H).difference(feature))
 
-    if mask_h > 0:
-        mp = mask_polygon(p.get("mask_width", pitch), mask_h, H,
-                          corner=p.get("mask_corner", "square"),
-                          facet_angle=p.get("mask_facet_angle", 45.0),
-                          radius=p.get("mask_radius", 0.0))
-        opening = box(-top / 2, H, top / 2, total_h) if base_type != "line" else Polygon()
-        st.add(p.get("mask_material", "hardmask"), mp.difference(opening))
+    # mask stack — each layer is a band; only the TOP layer gets the corner shape,
+    # and (for a trench) the trench opening is carved through every layer.
+    mask_width = p.get("mask_width", pitch)
+    corner = p.get("mask_corner", "square"); fa = p.get("mask_facet_angle", 45.0); rad = p.get("mask_radius", 0.0)
+    y = H
+    for idx, layer in enumerate(mask_layers):
+        lh = layer["height"]; is_top = idx == len(mask_layers) - 1
+        if is_top and corner != "square":
+            mp = mask_polygon(mask_width, lh, y, corner, fa, rad)
+        else:
+            mp = box(-mask_width / 2, y, mask_width / 2, y + lh)
+        if base_type != "line":
+            mp = mp.difference(box(-top / 2, y, top / 2, y + lh))   # trench opening
+        st.add(layer["material"], mp)
+        y += lh
     return st
 
 
@@ -140,8 +155,15 @@ def _extrude_down(geom, depth):
 
 
 def conformal_deposit(state: State, material: str, thickness: float) -> State:
-    """Uniform film of `thickness` grown on all exposed surfaces into the open region."""
+    """Uniform film of `thickness` grown on all exposed surfaces into the open region.
+
+    On an empty base there is no surface to conform to, so the first film is deposited
+    as a blanket slab (a bare wafer's first film is planar) — this makes 'start from
+    Blank and deposit layer by layer' behave as expected.
+    """
     s = state.solid()
+    if s.is_empty:
+        return planar_deposit(state, material, thickness)
     film = s.buffer(thickness, join_style=2).difference(s).intersection(state.cell)
     st = state.copy(); st.add(material, film); return st
 
