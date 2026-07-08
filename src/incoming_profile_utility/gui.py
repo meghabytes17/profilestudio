@@ -204,6 +204,7 @@ class ProfileStudio(ctk.CTk):
             e = ctk.CTkEntry(self.param_page, font=self.mono, fg_color=NAVY_900,
                              border_color=NAVY_700, text_color=ON_DARK, width=120)
             e.insert(0, default)
+            e.bind("<KeyRelease>", self._schedule_render)
             self._row(self.param_page, i, label, info, e)
             self.entries[key] = e
 
@@ -247,6 +248,7 @@ class ProfileStudio(ctk.CTk):
         self.scale_entry = ctk.CTkEntry(common, font=self.mono, fg_color=NAVY_900,
                                         border_color=NAVY_700, text_color=ON_DARK, width=120)
         self.scale_entry.insert(0, "0.4")
+        self.scale_entry.bind("<KeyRelease>", self._schedule_render)
         self._row(common, 0, "Scale (nm/px)",
                   "Nanometers per pixel. Smaller = higher resolution / larger image.",
                   self.scale_entry)
@@ -398,7 +400,14 @@ class ProfileStudio(ctk.CTk):
             ctk.CTkLabel(chip, text=f"{label}: {mat}", font=self.eyebrow,
                          text_color=ON_DARK_SOFT).pack(side="left")
 
+    def _schedule_render(self, _evt=None):
+        """Debounced live re-render (used by keystroke bindings)."""
+        if getattr(self, "_render_job", None):
+            self.after_cancel(self._render_job)
+        self._render_job = self.after(120, self.render_preview)
+
     def render_preview(self):
+        self._render_job = None
         try:
             tmp = Path(tempfile.gettempdir()) / "_ipu_preview.bmp"
             self._render_to(tmp)
