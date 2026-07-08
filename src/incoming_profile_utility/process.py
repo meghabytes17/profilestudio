@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import cv2
 from shapely import affinity
-from shapely.geometry import Polygon, box
+from shapely.geometry import Polygon, box, Point
 from shapely.ops import unary_union
 
 from ._curves import half_width_curve  # shared with parametric (see below)
@@ -107,13 +107,42 @@ def _trace_opening(trace, total_h):
     return poly if poly.is_valid else poly.buffer(0)
 
 
+def _corner_cut(shape_list, cx, top):
+    """Union of corner-removal shapes for the RIGHT top-inner corner at (cx, top).
+
+    Each treatment removes material at the corner; unioning them lets treatments
+    combine (e.g. a facet plus a round). Treatments:
+      {'kind':'round','r':..}, {'kind':'chamfer','s':..}, {'kind':'facet','angle':deg,'depth':..}
+    """
+    cuts = []
+    for t in shape_list or []:
+        k = t.get("kind")
+        if k == "chamfer":
+            s = float(t.get("s", 0) or 0)
+            if s > 0: cuts.append(Polygon([(cx, top), (cx + s, top), (cx, top - s)]))
+        elif k == "facet":
+            ang = math.radians(float(t.get("angle", 45) or 45)); d = float(t.get("depth", 0) or 0)
+            if d > 0 and 0 < ang < math.pi / 2:
+                run = d / math.tan(ang)
+                cuts.append(Polygon([(cx, top), (cx + run, top), (cx, top - d)]))
+        elif k == "round":
+            r = float(t.get("r", 0) or 0)
+            if r > 0:
+                cuts.append(box(cx, top - r, cx + r, top).difference(Point(cx + r, top - r).buffer(r, quad_segs=32)))
+    if not cuts:
+        return None
+    u = unary_union(cuts)
+    return None if u.is_empty else u
+
+
 def _build_material_stack(p: dict) -> State:
     """Vertical stack of material layers with a centered opening.
 
     Layers are TOP-first (row 1 = top). Height = sum of thicknesses + `top_vacuum`
-    (default 20 nm). The opening is either a rectangle (`space` wide, cut down by
-    `opening_depth`) or, if `opening_trace` is given, the shape of that CSV trace
-    (cut from the top down). Empty stack -> blank canvas.
+    (default 20 nm). The opening is a rectangle (`space` wide, cut down by
+    `opening_depth`) or, if `opening_trace` is given, that CSV trace shape. Each layer
+    may carry a `shape` list of top-inner-corner treatments (combinable, mirrored).
+    Empty stack -> blank canvas.
     """
     pitch = p.get("pitch", 100.0)
     space = p.get("space", 0.0) or 0.0
@@ -121,6 +150,7 @@ def _build_material_stack(p: dict) -> State:
     layers = [l for l in p.get("material_layers", []) if l.get("thickness", 0) > 0]
     total = sum(l["thickness"] for l in layers)
     trace = p.get("opening_trace")
+    open_bottom = 0.0
     if trace:
         opening = _trace_opening(trace, total)
     else:
@@ -131,10 +161,16 @@ def _build_material_stack(p: dict) -> State:
     st = State(cell, [])
     y = 0.0
     for l in reversed(layers):            # last row -> bottom, first row -> top
-        th = l["thickness"]
-        band = box(-pitch / 2, y, pitch / 2, y + th)
+        th = l["thickness"]; top = y + th
+        band = box(-pitch / 2, y, pitch / 2, top)
         if opening is not None:
             band = band.difference(opening)
+        shape = l.get("shape")
+        if shape and trace is None and space > 0 and top > open_bottom:
+            rc = _corner_cut(shape, space / 2, top)
+            if rc is not None:
+                lc = affinity.scale(rc, xfact=-1, origin=(0, 0))   # symmetric mirror
+                band = band.difference(rc).difference(lc)
         st.add(l["material"], band)
         y += th
     return st

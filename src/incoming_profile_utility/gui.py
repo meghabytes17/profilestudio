@@ -98,8 +98,8 @@ class Tooltip:
 
 
 class MaterialLayerRow:
-    def __init__(self, app, material, thickness):
-        self.app=app
+    def __init__(self, app, material, thickness, shape=None):
+        self.app=app; self.shape=list(shape) if shape else []
         self.frame=ctk.CTkFrame(app.matstack_container, fg_color=NAVY_900, corner_radius=8, border_width=1, border_color=NAVY_700)
         self.grip=ctk.CTkLabel(self.frame, text="⠿", font=app.ub, text_color=MUT, cursor="fleur", width=16)
         self.grip.pack(side="left", padx=(8,2))
@@ -109,21 +109,29 @@ class MaterialLayerRow:
         self.badge_lbl=ctk.CTkLabel(self.badge, text="1", font=app.eb, text_color=ON); self.badge_lbl.pack(expand=True)
         self.sw=ctk.CTkFrame(self.frame, width=16, height=16, corner_radius=3, fg_color=app.palette.hex(material), border_width=1, border_color=NAVY_700)
         self.sw.pack(side="left", padx=(0,6)); self.sw.pack_propagate(False)
-        self.mat=ctk.CTkOptionMenu(self.frame, values=app.palette.names(), width=140, font=app.uf, fg_color=NAVY_800,
+        self.mat=ctk.CTkOptionMenu(self.frame, values=app.palette.names(), width=132, font=app.uf, fg_color=NAVY_800,
                      button_color=BLUE, button_hover_color=BLUE_L, text_color=ON, command=self._on_mat)
         self.mat.set(material); self.mat.pack(side="left", padx=(0,6), pady=7)
-        self.th=ctk.CTkEntry(self.frame, width=52, font=app.mono, fg_color=NAVY_800, border_color=NAVY_700, text_color=ON)
+        self.th=ctk.CTkEntry(self.frame, width=50, font=app.mono, fg_color=NAVY_800, border_color=NAVY_700, text_color=ON)
         self.th.insert(0,str(thickness)); self.th.bind("<KeyRelease>", app._schedule_render); self.th.pack(side="left", padx=(0,2))
         ctk.CTkLabel(self.frame, text="nm", font=app.eb, text_color=MUT).pack(side="left")
         for sym,cmd in (("✕",lambda:app._remove_matlayer(self)),("↓",lambda:app._move_matlayer(self,1)),("↑",lambda:app._move_matlayer(self,-1))):
             ctk.CTkButton(self.frame, text=sym, width=24, font=app.uf, fg_color="transparent", border_width=1,
                           border_color=NAVY_700, text_color=SOFT, hover_color=NAVY_700, command=cmd).pack(side="right", padx=1)
+        self.shape_btn=ctk.CTkButton(self.frame, text="◐ shape", width=64, font=app.eb, fg_color="transparent", border_width=1,
+                     border_color=BLUE_L, text_color=SOFT, hover_color=NAVY_700, command=lambda: app._edit_shape(self))
+        self.shape_btn.pack(side="right", padx=(4,2)); self._refresh_shape_btn()
+    def _refresh_shape_btn(self):
+        self.shape_btn.configure(text=f"◐ shape ({len(self.shape)})" if self.shape else "◐ shape",
+                                 text_color=(GREEN if self.shape else SOFT))
     def _on_mat(self,_v):
         self.sw.configure(fg_color=self.app.palette.hex(self.mat.get())); self.app.render_preview()
     def to_layer(self):
         try: t=float(self.th.get())
         except ValueError: t=0.0
-        return dict(material=self.mat.get(), thickness=t)
+        d=dict(material=self.mat.get(), thickness=t)
+        if self.shape: d["shape"]=self.shape
+        return d
 
 
 class OpRow:
@@ -362,7 +370,7 @@ class ProfileStudio(ctk.CTk):
 
     # ---- undo ----
     def _snapshot(self):
-        return dict(materials=[(r.mat.get(), r.th.get()) for r in self.matlayer_rows],
+        return dict(materials=[{"material":r.mat.get(),"thickness":r.th.get(),"shape":list(r.shape)} for r in self.matlayer_rows],
                     ops=self.stack.to_ops(),
                     fields={k:self.entries[k].get() for k in self.entries},
                     scale=self.scale_entry.get(),
@@ -390,8 +398,8 @@ class ProfileStudio(ctk.CTk):
         try:
             for r in list(self.matlayer_rows): r.frame.destroy()
             self.matlayer_rows=[]
-            for mat,th in snap["materials"]:
-                self.matlayer_rows.append(MaterialLayerRow(self, mat, th))
+            for m in snap["materials"]:
+                self.matlayer_rows.append(MaterialLayerRow(self, m["material"], m["thickness"], m.get("shape")))
             self._relayout_matstack()
             self._load_ops(self.stack, snap["ops"])
             for k,v in snap["fields"].items():
@@ -416,6 +424,58 @@ class ProfileStudio(ctk.CTk):
             return out
         for om in self.material_menus+orows(self.stack)+[r.mat for r in self.matlayer_rows]:
             cur=om.get(); om.configure(values=names); om.set(cur)
+
+    def _edit_shape(self, row):
+        dlg=ctk.CTkToplevel(self); dlg.title("Top-corner shape"); dlg.geometry("440x380"); dlg.configure(fg_color=NAVY_800); dlg.transient(self)
+        ctk.CTkLabel(dlg,text=f"Top-corner shape · {row.mat.get()}",font=self.ub,text_color=ON).pack(anchor="w",padx=16,pady=(12,2))
+        ctk.CTkLabel(dlg,text="Treatments stack (combine), applied to both top corners (symmetric).",
+                     font=self.eb,text_color=MUT,wraplength=400,justify="left").pack(anchor="w",padx=16,pady=(0,6))
+        cont=ctk.CTkScrollableFrame(dlg,fg_color="transparent",height=210); cont.pack(fill="both",expand=True,padx=10)
+        trows=[]
+        def to_dicts():
+            out=[]
+            for rec in trows:
+                k=rec["kind"].get()
+                def fv(e,d):
+                    try: return float(e.get())
+                    except ValueError: return d
+                if k=="round": out.append({"kind":"round","r":fv(rec["p1"],0)})
+                elif k=="chamfer": out.append({"kind":"chamfer","s":fv(rec["p1"],0)})
+                else: out.append({"kind":"facet","angle":fv(rec["p1"],45),"depth":fv(rec["p2"],0)})
+            return out
+        def commit():
+            row.shape=to_dicts(); row._refresh_shape_btn(); self.render_preview()
+        def add_tr(t=None):
+            t=t or {"kind":"round","r":10}
+            fr=ctk.CTkFrame(cont,fg_color=NAVY_900,corner_radius=8); fr.pack(fill="x",pady=3)
+            kind=ctk.CTkOptionMenu(fr,values=["round","chamfer","facet"],width=96,font=self.uf,fg_color=NAVY_800,
+                   button_color=BLUE,button_hover_color=BLUE_L,text_color=ON); kind.set(t.get("kind","round"))
+            kind.pack(side="left",padx=(8,6),pady=7)
+            l1=ctk.CTkLabel(fr,text="",font=self.eb,text_color=MUT,width=42); l1.pack(side="left")
+            p1=ctk.CTkEntry(fr,width=52,font=self.mono,fg_color=NAVY_800,border_color=NAVY_700,text_color=ON); p1.pack(side="left",padx=2)
+            l2=ctk.CTkLabel(fr,text="",font=self.eb,text_color=MUT,width=42); l2.pack(side="left")
+            p2=ctk.CTkEntry(fr,width=52,font=self.mono,fg_color=NAVY_800,border_color=NAVY_700,text_color=ON); p2.pack(side="left",padx=2)
+            rec={"frame":fr,"kind":kind,"p1":p1,"p2":p2,"l1":l1,"l2":l2}
+            def sync(_=None):
+                k=kind.get()
+                if k=="round": l1.configure(text="radius"); l2.configure(text=""); p2.configure(state="disabled")
+                elif k=="chamfer": l1.configure(text="size"); l2.configure(text=""); p2.configure(state="disabled")
+                else: l1.configure(text="angle°"); l2.configure(text="depth"); p2.configure(state="normal")
+            kind.configure(command=lambda _v:(sync(),commit()))
+            p1.bind("<KeyRelease>",lambda e:commit()); p2.bind("<KeyRelease>",lambda e:commit())
+            def rm(): fr.destroy(); trows.remove(rec); commit()
+            ctk.CTkButton(fr,text="✕",width=24,font=self.uf,fg_color="transparent",border_width=1,border_color=NAVY_700,
+                          text_color=SOFT,hover_color=NAVY_700,command=rm).pack(side="right",padx=6)
+            # seed values
+            if t.get("kind")=="facet": p1.insert(0,str(t.get("angle",45))); p2.insert(0,str(t.get("depth",0)))
+            elif t.get("kind")=="chamfer": p1.insert(0,str(t.get("s",0)))
+            else: p1.insert(0,str(t.get("r",0)))
+            trows.append(rec); sync()
+        for t in row.shape: add_tr(t)
+        bar=ctk.CTkFrame(dlg,fg_color="transparent"); bar.pack(fill="x",padx=12,pady=8)
+        ctk.CTkButton(bar,text="＋ Add treatment",command=lambda:(add_tr(),commit()),font=self.uf,fg_color=NAVY_900,
+                      border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
+        ctk.CTkButton(bar,text="Done",command=dlg.destroy,font=self.ub,width=90,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).pack(side="left",padx=2)
 
     def _add_material(self):
         from tkinter.colorchooser import askcolor
