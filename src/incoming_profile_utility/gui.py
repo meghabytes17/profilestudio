@@ -25,7 +25,13 @@ FIELDS = [
 ]
 OP_LABELS = ["Deposit · conformal","Deposit · planar","Fill","Etch · isotropic","Etch · anisotropic","Planarize"]
 OP_PRESETS = {"deposit":("Deposit · conformal","oxide",8),"fill":("Fill","tungsten",0),
-              "etch":("Etch · anisotropic","oxide",5),"planarize":("Planarize","oxide",240)}
+              "etch":("Etch · anisotropic","(any)",5),"planarize":("Planarize","oxide",240)}
+OP_INFO = ("Deposit · conformal: uniform film of the set thickness on all exposed surfaces.\n"
+           "Deposit · planar: flat slab of the set thickness on top.\n"
+           "Fill: fills the opening with the chosen material.\n"
+           "Etch: removes to the set depth. Pick a material to etch just that one (stops on "
+           "others), or (any) to etch everything exposed. Anisotropy 1 = vertical, 0 = isotropic undercut.\n"
+           "Planarize: cut everything above the given height (CMP).")
 
 
 def _op_to_row(op):
@@ -34,8 +40,8 @@ def _op_to_row(op):
     if o=="planar_deposit":    return ("Deposit · planar", op.get("material","oxide"), op.get("thickness",0), 1.0)
     if o=="fill":              return ("Fill", op.get("material","tungsten"), 0, 1.0)
     if o=="etch":
-        a=op.get("anisotropy",1.0)
-        return (("Etch · isotropic" if a<=0 else "Etch · anisotropic"), "oxide", op.get("depth",0), a)
+        a=op.get("anisotropy",1.0); mat=op.get("material") or "(any)"
+        return (("Etch · isotropic" if a<=0 else "Etch · anisotropic"), mat, op.get("depth",0), a)
     if o=="planarize":         return ("Planarize", "oxide", op.get("at_height",0), 1.0)
     return ("Deposit · conformal","oxide",0,1.0)
 
@@ -142,8 +148,9 @@ class OpRow:
         for sym,cmd in (("✕",lambda:host.remove(self)),("↓",lambda:host.move(self,1)),("↑",lambda:host.move(self,-1))):
             ctk.CTkButton(self.frame, text=sym, width=24, font=app.uf, fg_color="transparent", border_width=1,
                           border_color=NAVY_700, text_color=SOFT, hover_color=NAVY_700, command=cmd).pack(side="right", padx=1)
-        self.badge=ctk.CTkFrame(self.frame, fg_color=BLUE, corner_radius=999, width=20, height=20); self.badge.pack(side="left", padx=(10,8), pady=8); self.badge.pack_propagate(False)
+        self.badge=ctk.CTkFrame(self.frame, fg_color=BLUE, corner_radius=999, width=20, height=20); self.badge.pack(side="left", padx=(10,6), pady=8); self.badge.pack_propagate(False)
         self.badge_lbl=ctk.CTkLabel(self.badge, text="1", font=app.eb, text_color=ON); self.badge_lbl.pack(expand=True)
+        info=ctk.CTkLabel(self.frame, text="ⓘ", font=app.uf, text_color=BLUE_L, cursor="hand2"); info.pack(side="left", padx=(0,4)); Tooltip(info, OP_INFO)
         self.optype=ctk.CTkOptionMenu(self.frame, values=OP_LABELS, width=142, font=app.uf, fg_color=NAVY_800,
                      button_color=BLUE, button_hover_color=BLUE_L, text_color=ON, command=self._on_type)
         self.optype.set(op_label); self.optype.pack(side="left", padx=4, pady=8)
@@ -159,22 +166,30 @@ class OpRow:
         self._sync()
     def _on_type(self,_v): self._sync(); self.host.app._schedule_render()
     def _sync(self):
-        lbl=self.optype.get()
-        self.mat.configure(state="normal" if lbl in self.NEEDS_MAT else "disabled")
+        lbl=self.optype.get(); names=self.host.app.palette.names()
+        if lbl in ("Etch · isotropic","Etch · anisotropic"):
+            vals=["(any)"]+names; self.mat.configure(state="normal", values=vals)
+            if self.mat.get() not in vals: self.mat.set("(any)")
+        elif lbl in self.NEEDS_MAT:
+            self.mat.configure(state="normal", values=names)
+            if self.mat.get() not in names and names: self.mat.set(names[0])
+        else:
+            self.mat.configure(state="disabled")
         if lbl=="Etch · anisotropic": self.aniso_lbl.pack(side="left",padx=(6,1)); self.aniso.pack(side="left")
         else: self.aniso_lbl.pack_forget(); self.aniso.pack_forget()
     def to_op(self):
         lbl=self.optype.get(); mat=self.mat.get()
         try: n=float(self.num.get())
         except ValueError: n=0.0
+        tgt=None if mat=="(any)" else mat
         if lbl=="Deposit · conformal": return dict(op="conformal_deposit", material=mat, thickness=n)
         if lbl=="Deposit · planar":    return dict(op="planar_deposit", material=mat, thickness=n)
         if lbl=="Fill":                return dict(op="fill", material=mat)
-        if lbl=="Etch · isotropic":    return dict(op="etch", depth=n, anisotropy=0.0)
+        if lbl=="Etch · isotropic":    return dict(op="etch", depth=n, anisotropy=0.0, material=tgt)
         if lbl=="Etch · anisotropic":
             try: a=float(self.aniso.get())
             except ValueError: a=1.0
-            return dict(op="etch", depth=n, anisotropy=a)
+            return dict(op="etch", depth=n, anisotropy=a, material=tgt)
         if lbl=="Planarize":           return dict(op="planarize", at_height=n)
         return dict(op="conformal_deposit", material=mat, thickness=n)
 
@@ -237,7 +252,7 @@ class ProfileStudio(ctk.CTk):
         self.title("Incoming Profile Utility"); self.geometry("1180x820")
         self.palette=load_palette(); self.opening_trace=None
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
-        self._undo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_var=ctk.BooleanVar(value=False)
+        self._undo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
@@ -334,8 +349,10 @@ class ProfileStudio(ctk.CTk):
         self.preview=ctk.CTkLabel(fr,text="",fg_color=NAVY_900); self.preview.pack(expand=True,fill="both",padx=10,pady=10)
         self.legend=ctk.CTkFrame(card,fg_color="transparent"); self.legend.pack(fill="x",padx=18,pady=(0,4))
         bar=ctk.CTkFrame(card,fg_color="transparent"); bar.pack(fill="x",padx=18,pady=(4,16)); bar.grid_columnconfigure(0,weight=1)
-        ctk.CTkCheckBox(bar,text="Smooth (anti-alias)",variable=self.smooth_var,command=self.render_preview,
-                        font=self.eb,text_color=SOFT,fg_color=GREEN,hover_color=GREEN_D,checkbox_width=18,checkbox_height=18).grid(row=0,column=0,sticky="w")
+        sm=ctk.CTkFrame(bar,fg_color="transparent"); sm.grid(row=0,column=0,sticky="w")
+        ctk.CTkLabel(sm,text="Smoothing",font=self.eb,text_color=SOFT).pack(side="left",padx=(0,6))
+        ctk.CTkOptionMenu(sm,values=["Off","2×","4×","8×"],variable=self.smooth_level,command=lambda _v:self.render_preview(),
+                          width=76,font=self.uf,fg_color=NAVY_900,button_color=BLUE,button_hover_color=BLUE_L,text_color=ON).pack(side="left")
         ctk.CTkButton(bar,text="Render",command=self.render_preview,font=self.uf,width=90,fg_color="transparent",border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).grid(row=0,column=1,padx=(0,8))
         ctk.CTkButton(bar,text="Save .bmp…",command=self.save_bmp,font=self.ub,width=120,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).grid(row=0,column=2)
 
@@ -448,26 +465,32 @@ class ProfileStudio(ctk.CTk):
         def add_tr(t=None):
             t=t or {"kind":"round","r":10}
             fr=ctk.CTkFrame(cont,fg_color=NAVY_900,corner_radius=8); fr.pack(fill="x",pady=3)
-            kind=ctk.CTkOptionMenu(fr,values=["round","chamfer","facet"],width=96,font=self.uf,fg_color=NAVY_800,
+            kind=ctk.CTkOptionMenu(fr,values=["round","chamfer","facet"],width=90,font=self.uf,fg_color=NAVY_800,
                    button_color=BLUE,button_hover_color=BLUE_L,text_color=ON); kind.set(t.get("kind","round"))
-            kind.pack(side="left",padx=(8,6),pady=7)
-            l1=ctk.CTkLabel(fr,text="",font=self.eb,text_color=MUT,width=42); l1.pack(side="left")
+            kind.pack(side="left",padx=(8,4),pady=7)
+            ic=ctk.CTkLabel(fr,text="ⓘ",font=self.uf,text_color=BLUE_L,cursor="hand2"); ic.pack(side="left",padx=(0,6))
+            Tooltip(ic,"round: fillet the corner (radius).\nchamfer: straight 45° cut (size).\nfacet: straight cut at an angle from horizontal, over a vertical depth.")
+            l1=ctk.CTkLabel(fr,text="",font=self.eb,text_color=MUT,width=44); l1.pack(side="left")
             p1=ctk.CTkEntry(fr,width=52,font=self.mono,fg_color=NAVY_800,border_color=NAVY_700,text_color=ON); p1.pack(side="left",padx=2)
-            l2=ctk.CTkLabel(fr,text="",font=self.eb,text_color=MUT,width=42); l2.pack(side="left")
-            p2=ctk.CTkEntry(fr,width=52,font=self.mono,fg_color=NAVY_800,border_color=NAVY_700,text_color=ON); p2.pack(side="left",padx=2)
-            rec={"frame":fr,"kind":kind,"p1":p1,"p2":p2,"l1":l1,"l2":l2}
+            l2=ctk.CTkLabel(fr,text="",font=self.eb,text_color=MUT,width=44)
+            p2=ctk.CTkEntry(fr,width=52,font=self.mono,fg_color=NAVY_800,border_color=NAVY_700,text_color=ON)
+            rec={"frame":fr,"kind":kind,"p1":p1,"p2":p2}
             def sync(_=None):
                 k=kind.get()
-                if k=="round": l1.configure(text="radius"); l2.configure(text=""); p2.configure(state="disabled")
-                elif k=="chamfer": l1.configure(text="size"); l2.configure(text=""); p2.configure(state="disabled")
-                else: l1.configure(text="angle°"); l2.configure(text="depth"); p2.configure(state="normal")
+                if k=="facet":
+                    l1.configure(text="angle°"); l2.configure(text="depth")
+                    l2.pack(side="left"); p2.pack(side="left",padx=2)
+                    if not p1.get().strip(): p1.insert(0,"45")
+                    if not p2.get().strip(): p2.insert(0,"10")
+                else:
+                    l1.configure(text="radius" if k=="round" else "size")
+                    p2.pack_forget(); l2.pack_forget()
             kind.configure(command=lambda _v:(sync(),commit()))
             p1.bind("<KeyRelease>",lambda e:commit()); p2.bind("<KeyRelease>",lambda e:commit())
             def rm(): fr.destroy(); trows.remove(rec); commit()
             ctk.CTkButton(fr,text="✕",width=24,font=self.uf,fg_color="transparent",border_width=1,border_color=NAVY_700,
                           text_color=SOFT,hover_color=NAVY_700,command=rm).pack(side="right",padx=6)
-            # seed values
-            if t.get("kind")=="facet": p1.insert(0,str(t.get("angle",45))); p2.insert(0,str(t.get("depth",0)))
+            if t.get("kind")=="facet": p1.insert(0,str(t.get("angle",45))); p2.insert(0,str(t.get("depth",10)))
             elif t.get("kind")=="chamfer": p1.insert(0,str(t.get("s",0)))
             else: p1.insert(0,str(t.get("r",0)))
             trows.append(rec); sync()
@@ -510,7 +533,7 @@ class ProfileStudio(ctk.CTk):
         hspan=float(df["height"].max()-df["height"].min())
         if not self.matlayer_rows and hspan>0:      # give the opening something to cut, so it's visible
             self.matlayer_rows.append(MaterialLayerRow(self,"silicon",round(hspan,1))); self._relayout_matstack()
-        self.csv_label.configure(text=f"✓ Opening from {Path(path).name} ({len(df)} pts). Edit the material layers to embed it; Space is ignored while a CSV opening is active.", text_color=GREEN)
+        self.csv_label.configure(text=f"✓ Opening from {Path(path).name} ({len(df)} pts) — aligned to the TOP of the stack, cut downward. Edit material layers to embed it; Space is ignored.", text_color=GREEN)
         self.render_preview()
 
     def _clear_csv(self):
@@ -550,7 +573,7 @@ class ProfileStudio(ctk.CTk):
     def _render_to(self,out_path):
         base=proc.build_base(self._params()); st=proc.evaluate(base,self.stack.to_ops()); self._last_state=st
         npp=self._resolve_npp(st); self._last_npp=npp
-        ss = 3 if self.smooth_var.get() else 1
+        ss={"Off":1,"2×":2,"4×":4,"8×":8}.get(self.smooth_level.get(),1)
         if ss==1:
             proc.render_regions(st,self.palette,out_path,npp)     # hard pixels, no AA
         else:
@@ -589,9 +612,31 @@ class ProfileStudio(ctk.CTk):
         if getattr(self,"_job",None): self.after_cancel(self._job)
         self._job=self.after(120,self.render_preview)
 
+    def _field(self,key):
+        try: return float(self.entries[key].get())
+        except (ValueError, KeyError): return None
+
+    def _update_shape_availability(self):
+        rows=self.matlayer_rows
+        total=0.0
+        for r in rows:
+            try: total+=float(r.th.get())
+            except ValueError: pass
+        space=self._field("space"); depth=self._field("opening_depth"); trace=self.opening_trace is not None
+        open_bottom = 0.0 if (depth is None or depth<=0 or (total and depth>=total)) else (total-depth)
+        y=0.0; topmap={}
+        for r in reversed(rows):
+            try: y+=float(r.th.get())
+            except ValueError: pass
+            topmap[id(r)]=y
+        for r in rows:
+            reach=(not trace) and (space is not None and space>0) and (topmap.get(id(r),0)>open_bottom+1e-9)
+            r.shape_btn.configure(state="normal" if reach else "disabled")
+
     def render_preview(self):
         self._job=None
         if self._loading: return
+        self._update_shape_availability()
         try:
             tmp=Path(tempfile.gettempdir())/"_ipu_preview.bmp"; self._render_to(tmp)
             disp=compose_preview(tmp,self._last_npp,target_h=440)

@@ -116,3 +116,16 @@ def test_opening_depth():
     sil_shallow = [g for m, g in shallow.regions if m == "silicon"][0]
     assert sil_shallow.area > sil_full.area                 # bottom layer no longer notched
     assert abs(sil_shallow.area - 120 * 40) < 1e-6          # full solid band
+
+
+def test_selective_etch():
+    from incoming_profile_utility.process import build_base, evaluate
+    base = build_base(dict(material_layers=[
+        dict(material="hardmask", thickness=20), dict(material="silicon", thickness=40)],
+        pitch=120, space=0, top_vacuum=10))
+    a_sil = [g for m, g in base.regions if m == "silicon"][0].area
+    a_hm  = [g for m, g in base.regions if m == "hardmask"][0].area
+    st = evaluate(base, [dict(op="etch", depth=15, anisotropy=1.0, material="hardmask")])
+    reg = dict((m, g.area) for m, g in st.regions)
+    assert reg["silicon"] == a_sil            # silicon untouched
+    assert reg["hardmask"] < a_hm             # only hardmask etched

@@ -274,12 +274,13 @@ def fill(state: State, material: str, up_to: float | None = None) -> State:
     st = state.copy(); st.add(material, region); return st
 
 
-def etch(state: State, depth: float, anisotropy: float = 1.0, mode: str | None = None) -> State:
+def etch(state: State, depth: float, anisotropy: float = 1.0,
+         material: str | None = None, mode: str | None = None) -> State:
     """Remove material from exposed surfaces to `depth`.
 
-    anisotropy in [0,1]: 1 = fully vertical (no undercut); 0 = isotropic (lateral
-    undercut equal to depth). Lateral undercut = depth × (1 − anisotropy).
-    `mode` ('isotropic'/'anisotropic') is still accepted and maps to 0/1.
+    anisotropy in [0,1]: 1 = vertical (no undercut), 0 = isotropic. `material` selects
+    which material is etched — if given, only that material is removed (the etch stops
+    on other materials); None/"(any)" etches everything exposed.
     """
     if mode == "isotropic": anisotropy = 0.0
     elif mode == "anisotropic": anisotropy = 1.0
@@ -289,8 +290,15 @@ def etch(state: State, depth: float, anisotropy: float = 1.0, mode: str | None =
     if lateral > 1e-9:
         removal = removal.buffer(lateral, join_style=2)
     removal = removal.intersection(state.solid())
-    new = [(m, g.difference(removal)) for m, g in state.regions]
-    return State(state.cell, [(m, g) for m, g in new if not g.is_empty])
+    tgt = None if material in (None, "", "(any)") else material
+    new = []
+    for m, g in state.regions:
+        if tgt is None or m == tgt:
+            gg = g.difference(removal)
+            if not gg.is_empty: new.append((m, gg))
+        else:
+            new.append((m, g))
+    return State(state.cell, new)
 
 
 def planarize(state: State, at_height: float) -> State:
