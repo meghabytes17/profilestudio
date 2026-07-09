@@ -114,12 +114,12 @@ def _trace_opening(trace, total_h, ref=None):
     return poly if poly.is_valid else poly.buffer(0)
 
 
-def _corner_cut(shape_list, cx, top):
-    """Union of corner-removal shapes for the RIGHT top-inner corner at (cx, top).
+def _corner_cut(shape_list, cx, top, bottom=None):
+    """Union of corner/wall removal shapes for the RIGHT side at opening edge cx.
 
-    Each treatment removes material at the corner; unioning them lets treatments
-    combine (e.g. a facet plus a round). Treatments:
-      {'kind':'round','r':..}, {'kind':'chamfer','s':..}, {'kind':'facet','angle':deg,'depth':..}
+    Treatments (combinable): round(r), chamfer(s), facet(angle,depth) shape the top
+    corner; taper(angle) slopes the ENTIRE layer wall (angle from vertical; opening
+    wider at the top). `bottom` is the layer's bottom y (needed for taper).
     """
     cuts = []
     for t in shape_list or []:
@@ -136,6 +136,11 @@ def _corner_cut(shape_list, cx, top):
             r = float(t.get("r", 0) or 0)
             if r > 0:
                 cuts.append(box(cx, top - r, cx + r, top).difference(Point(cx + r, top - r).buffer(r, quad_segs=32)))
+        elif k == "taper":
+            ang = math.radians(float(t.get("angle", 10) or 0))
+            if ang > 0 and bottom is not None and top > bottom:
+                run = (top - bottom) * math.tan(ang)
+                cuts.append(Polygon([(cx, top), (cx + run, top), (cx, bottom)]))
     if not cuts:
         return None
     u = unary_union(cuts)
@@ -144,11 +149,13 @@ def _corner_cut(shape_list, cx, top):
 
 def _rect_opening(space, open_bottom, total, bottom_r=0.0):
     """Rectangular opening; optionally round the two BOTTOM corners (U-shape).
-    bottom_r >= space/2 gives a full semicircular bottom."""
+    The radius is capped to fit both the half-width and the opening height, so a
+    shallow opening with a big radius can't produce a self-intersecting polygon."""
     x = space / 2.0
-    if bottom_r <= 0:
+    h = total - open_bottom
+    if bottom_r <= 0 or h <= 0:
         return box(-x, open_bottom, x, total)
-    r = min(bottom_r, x)
+    r = min(bottom_r, x, h)                     # must fit the width AND the opening height
     pts = [(-x, total), (-x, open_bottom + r)]
     import numpy as _np
     for a in _np.linspace(math.pi, 1.5 * math.pi, 20):          # left-bottom arc
@@ -156,7 +163,8 @@ def _rect_opening(space, open_bottom, total, bottom_r=0.0):
     for a in _np.linspace(1.5 * math.pi, 2 * math.pi, 20):      # right-bottom arc
         pts.append((x - r + r * math.cos(a), open_bottom + r + r * math.sin(a)))
     pts.append((x, total))
-    return Polygon(pts)
+    poly = Polygon(pts)
+    return poly if poly.is_valid else poly.buffer(0)
 
 
 def _build_material_stack(p: dict) -> State:
@@ -181,6 +189,8 @@ def _build_material_stack(p: dict) -> State:
         depth = p.get("opening_depth")
         open_bottom = 0.0 if (depth is None or depth <= 0 or depth >= total) else (total - depth)
         opening = _rect_opening(space, open_bottom, total, p.get("opening_bottom_radius", 0) or 0) if space > 0 else None
+    if opening is not None and not opening.is_valid:
+        opening = opening.buffer(0)
     cell = box(-pitch / 2, 0, pitch / 2, max(total + top_vac, 1.0))
     st = State(cell, [])
     y = 0.0
@@ -191,10 +201,13 @@ def _build_material_stack(p: dict) -> State:
             band = band.difference(opening)
         shape = l.get("shape")
         if shape and trace is None and space > 0 and top > open_bottom:
-            rc = _corner_cut(shape, space / 2, top)
+            rc = _corner_cut(shape, space / 2, top, y)
             if rc is not None:
+                if not rc.is_valid: rc = rc.buffer(0)
                 lc = affinity.scale(rc, xfact=-1, origin=(0, 0))   # symmetric mirror
                 band = band.difference(rc).difference(lc)
+        if not band.is_valid:
+            band = band.buffer(0)
         st.add(l["material"], band)
         y += th
     return st
