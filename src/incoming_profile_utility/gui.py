@@ -168,14 +168,16 @@ class OpRow:
     def _on_type(self,_v): self._sync(); self.host.app._schedule_render()
     def _sync(self):
         lbl=self.optype.get(); names=self.host.app._op_material_choices()
-        if lbl in ("Etch · isotropic","Etch · anisotropic"):
-            vals=["(any)"]+names; self.mat.configure(state="normal", values=vals)
-            if self.mat.get() not in vals: self.mat.set("(any)")
-        elif lbl in self.NEEDS_MAT:
-            self.mat.configure(state="normal", values=names)
-            if self.mat.get() not in names and names: self.mat.set(names[0])
+        if lbl=="Planarize":
+            self.mat.pack_forget()
         else:
-            self.mat.configure(state="disabled")
+            self.mat.pack(side="left", padx=2, pady=8, before=self.num)
+            if lbl in ("Etch · isotropic","Etch · anisotropic"):
+                vals=["(any)"]+names; self.mat.configure(state="normal", values=vals)
+                if self.mat.get() not in vals: self.mat.set("(any)")
+            else:
+                self.mat.configure(state="normal", values=names)
+                if self.mat.get() not in names and names: self.mat.set(names[0])
         if lbl=="Etch · anisotropic": self.aniso_lbl.pack(side="left",padx=(6,1)); self.aniso.pack(side="left")
         else: self.aniso_lbl.pack_forget(); self.aniso.pack_forget()
     def to_op(self):
@@ -253,12 +255,12 @@ class ProfileStudio(ctk.CTk):
         self.title("Incoming Profile Utility"); self.geometry("1180x820")
         self.palette=load_palette(); self.opening_trace=None
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
-        self._undo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
+        self._undo=[]; self._redo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
-        self.grid_columnconfigure(0,weight=1); self.grid_rowconfigure(1,weight=1)
-        self._header(); self._body(); self._footer()
+        self.grid_columnconfigure(0,weight=1); self.grid_rowconfigure(2,weight=1)
+        self._header(); self._toolbar(); self._body(); self._footer()
         self.after(160, self.render_preview)
 
     def _row(self,parent,r,label,info,widget):
@@ -283,8 +285,23 @@ class ProfileStudio(ctk.CTk):
                             button_hover_color=BLUE_L,text_color=ON,width=width,command=lambda _v:self.render_preview())
         m.set(default); self.material_menus.append(m); return m
 
+    def _toolbar(self):
+        tb=ctk.CTkFrame(self,fg_color=NAVY_800,corner_radius=0,height=46); tb.grid(row=1,column=0,sticky="ew"); tb.grid_propagate(False)
+        inner=ctk.CTkFrame(tb,fg_color="transparent"); inner.pack(side="left",padx=16,pady=7)
+        def tbtn(text,cmd,accent=False):
+            ctk.CTkButton(inner,text=text,command=cmd,font=self.uf,width=70,height=30,
+                fg_color=(GREEN if accent else "transparent"),text_color=(GREEN_INK if accent else ON),
+                border_width=(0 if accent else 1),border_color=BLUE_L,hover_color=(GREEN_D if accent else NAVY_700)).pack(side="left",padx=3)
+        def sep():
+            ctk.CTkFrame(inner,width=1,fg_color=NAVY_700).pack(side="left",fill="y",padx=8,pady=4)
+        tbtn("Open…",self._open_project); tbtn("Save…",self._save_project,accent=True); sep()
+        tbtn("↶ Undo",self._undo_action); tbtn("↷ Redo",self._redo_action); sep()
+        tbtn("↺ Reset",self._reset)
+        ctk.CTkLabel(tb,text="project = your full setup (materials, base, process) · Save .bmp exports the image",
+                     font=self.eb,text_color=MUT).pack(side="right",padx=18)
+
     def _body(self):
-        body=ctk.CTkFrame(self,fg_color="transparent"); body.grid(row=1,column=0,sticky="nsew",padx=18,pady=16)
+        body=ctk.CTkFrame(self,fg_color="transparent"); body.grid(row=2,column=0,sticky="nsew",padx=18,pady=16)
         body.grid_columnconfigure(0,weight=0,minsize=580); body.grid_columnconfigure(1,weight=1); body.grid_rowconfigure(0,weight=1)
         self._inputs(body); self._preview_card(body)
 
@@ -338,11 +355,6 @@ class ProfileStudio(ctk.CTk):
         self.op_container=ctk.CTkFrame(ps,fg_color="transparent"); self.op_container.pack(fill="x",pady=4)
         self.empty_hint=ctk.CTkLabel(ps,text="No steps yet.",font=ctk.CTkFont(size=11),text_color=MUT)
         self.stack=OpList(self, self.op_container, empty_hint=self.empty_hint); self.empty_hint.pack(anchor="w",padx=6)
-        btns=ctk.CTkFrame(ps,fg_color="transparent"); btns.pack(fill="x",padx=4,pady=(6,0))
-        ctk.CTkButton(btns,text="↶ Undo",command=self._undo_action,font=self.uf,fg_color="transparent",border_width=1,
-                      border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
-        ctk.CTkButton(btns,text="↺ Reset",command=self._reset,font=self.uf,fg_color="transparent",border_width=1,
-                      border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
 
         common=ctk.CTkFrame(card,fg_color="transparent"); common.pack(fill="x",padx=10,pady=(2,8)); common.grid_columnconfigure(2,weight=1)
         self.scale_entry=ctk.CTkEntry(common,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120,placeholder_text="auto")
@@ -363,7 +375,7 @@ class ProfileStudio(ctk.CTk):
         ctk.CTkButton(bar,text="Save .bmp…",command=self.save_bmp,font=self.ub,width=120,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).grid(row=0,column=2)
 
     def _footer(self):
-        ctk.CTkLabel(self,text="Symmetric · 24-bit BMP · 2D-polygon process model",font=self.eb,text_color=MUT).grid(row=2,column=0,sticky="w",padx=22,pady=(0,10))
+        ctk.CTkLabel(self,text="Symmetric · 24-bit BMP · 2D-polygon process model",font=self.eb,text_color=MUT).grid(row=3,column=0,sticky="w",padx=22,pady=(0,10))
 
     # ---- material stack ----
     def _add_matlayer(self, material="silicon", thickness=20, capture=True):
@@ -416,11 +428,34 @@ class ProfileStudio(ctk.CTk):
                     csv_ref=self.csv_ref_entry.get())
     def _capture(self):
         if self._loading: return
-        self._undo.append(self._snapshot())
+        self._undo.append(self._snapshot()); self._redo.clear()
         if len(self._undo)>50: self._undo.pop(0)
     def _undo_action(self):
         if not self._undo: return
-        self._load_state(self._undo.pop())
+        self._redo.append(self._snapshot()); self._load_state(self._undo.pop())
+    def _redo_action(self):
+        if not self._redo: return
+        self._undo.append(self._snapshot()); self._load_state(self._redo.pop())
+
+    def _save_project(self):
+        from tkinter import filedialog
+        import json
+        path=filedialog.asksaveasfilename(parent=self, defaultextension=".json",
+              filetypes=[("Profile project","*.json")], initialfile="profile.json")
+        if not path: return
+        with open(path,"w") as f: json.dump(self._snapshot(), f, indent=2)
+        self.title(f"Incoming Profile Utility — saved {Path(path).name}")
+    def _open_project(self):
+        from tkinter import filedialog
+        import json
+        path=filedialog.askopenfilename(parent=self, filetypes=[("Profile project","*.json")])
+        if not path: return
+        try:
+            with open(path) as f: snap=json.load(f)
+            self._capture(); self._load_state(snap)
+            self.title(f"Incoming Profile Utility — {Path(path).name}")
+        except Exception as exc:
+            self.title(f"Incoming Profile Utility — ⚠ open failed: {exc}")
     def _load_ops(self, oplist, ops):
         oplist.clear()
         for op in ops:
