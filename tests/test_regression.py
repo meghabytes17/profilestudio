@@ -262,3 +262,16 @@ def test_trace_to_parametric_monotonic_gives_mid_width():
     from incoming_profile_utility.io_csv import trace_to_parametric
     out = trace_to_parametric(pd.DataFrame({"width": [20, 40, 60], "height": [0, 20, 40]}))
     assert "bow" not in out and "mid_width" in out
+
+
+def test_round_plus_taper_keeps_mask_connected():
+    """round + taper on a mask with a rounded opening bottom must not carve isolated
+    islands out of the mask (the 'holes' bug from tester feedback)."""
+    layers = [dict(material="hardmask", thickness=200,
+                   shape=[dict(kind="round", r=60), dict(kind="taper", angle=75)]),
+              dict(material="photoresist", thickness=60)]
+    st = build_base(dict(material_layers=layers, pitch=240, space=90, top_vacuum=20,
+                         opening_depth=200, opening_bottom_radius=45))
+    hm = [g for m, g in st.regions if m == "hardmask"][0]
+    parts = len(hm.geoms) if hm.geom_type == "MultiPolygon" else 1
+    assert parts <= 2 and hm.is_valid          # left + right bars only, no slivers

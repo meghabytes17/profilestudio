@@ -194,6 +194,11 @@ def _build_material_stack(p: dict) -> State:
         opening = opening.buffer(0)
     cell = box(-pitch / 2, 0, pitch / 2, max(total + top_vac, 1.0))
     st = State(cell, [])
+    # the opening wall is straight only from the top down to here; below this it is the
+    # rounded bottom (or the opening has ended), so corner cuts must not reach lower or
+    # they'd carve disconnected islands out of the mask.
+    bottom_r = min((p.get("opening_bottom_radius", 0) or 0), space / 2) if trace is None else 0.0
+    wall_bottom = open_bottom + bottom_r
     y = 0.0
     for l in reversed(layers):            # last row -> bottom, first row -> top
         th = l["thickness"]; top = y + th
@@ -202,11 +207,15 @@ def _build_material_stack(p: dict) -> State:
             band = band.difference(opening)
         shape = l.get("shape")
         if shape and trace is None and space > 0 and top > open_bottom:
-            rc = _corner_cut(shape, space / 2, top, y)
-            if rc is not None:
-                if not rc.is_valid: rc = rc.buffer(0)
-                lc = affinity.scale(rc, xfact=-1, origin=(0, 0))   # symmetric mirror
-                band = band.difference(rc).difference(lc)
+            cut_bottom = max(y, wall_bottom)                       # taper stops at the straight-wall bottom
+            if top > cut_bottom:
+                rc = _corner_cut(shape, space / 2, top, cut_bottom)
+                if rc is not None:
+                    rc = rc.intersection(box(-pitch / 2, cut_bottom, pitch / 2, top))  # never below the wall
+                    if not rc.is_valid: rc = rc.buffer(0)
+                    if not rc.is_empty:
+                        lc = affinity.scale(rc, xfact=-1, origin=(0, 0))   # symmetric mirror
+                        band = band.difference(rc).difference(lc)
         if not band.is_valid:
             band = band.buffer(0)
         st.add(l["material"], band)

@@ -20,7 +20,7 @@ ON="#FFFFFF"; SOFT="#AEB9C8"; MUT="#8B99AC"
 FIELDS = [
     ("pitch","Pitch (nm)","120","Width of one repeating unit cell = line + opening."),
     ("space","Space · opening (nm)","50","Width of the centered opening. line width = pitch − space."),
-    ("opening_depth","Opening depth (nm)","","How far down from the TOP the opening is cut. Blank = all the way through."),
+    ("opening_depth","Opening depth (nm)","","How far down the opening is cut, measured from the TOP of the whole stack (not per-layer). Blank = cut all the way through every material."),
     ("opening_bottom_radius","Opening bottom round (nm)","","Round the BOTTOM of the opening into a U. 0 = flat; ≈ half the Space = full semicircle."),
     ("top_vacuum","Top vacuum (nm)","20","Empty space above the stack (room to deposit on top)."),
 ]
@@ -128,6 +128,8 @@ class MaterialLayerRow:
         self.shape_btn=ctk.CTkButton(self.frame, text="◐ shape", width=64, font=app.eb, fg_color="transparent", border_width=1,
                      border_color=BLUE_L, text_color=SOFT, hover_color=NAVY_700, command=lambda: app._edit_shape(self))
         self.shape_btn.pack(side="right", padx=(4,2)); self._refresh_shape_btn()
+        Tooltip(self.shape_btn, "Shape this layer's opening: round / chamfer / facet the top corners, "
+                                "or taper the sidewall (taper angle = sidewall angle from the horizontal base, 90° = vertical).")
     def _refresh_shape_btn(self):
         self.shape_btn.configure(text=f"◐ shape ({len(self.shape)})" if self.shape else "◐ shape",
                                  text_color=(GREEN if self.shape else SOFT))
@@ -319,7 +321,7 @@ class ProfileStudio(ctk.CTk):
 
         matf=ctk.CTkFrame(self.param_page,fg_color="transparent"); matf.pack(fill="x",pady=(0,6))
         ctk.CTkLabel(matf,text="MATERIAL STACK  (row ① = top)",font=self.eb,text_color=BLUE_L).pack(anchor="w",padx=6)
-        ctk.CTkLabel(matf,text="The incoming film stack, top → bottom. Each layer is a material + thickness (nm). Drag ⠿ to reorder.",
+        ctk.CTkLabel(matf,text="The incoming film stack, top → bottom. Each layer is a material + thickness (nm). Drag ⠿ to reorder; use ◐ shape for rounded corners or a tapered sidewall.",
                      font=ctk.CTkFont(size=11),text_color=MUT,wraplength=520,justify="left").pack(anchor="w",padx=6,pady=(0,4))
         self.matstack_container=ctk.CTkFrame(matf,fg_color="transparent"); self.matstack_container.pack(fill="x")
         self.matstack_hint=ctk.CTkLabel(matf,text="No layers yet — add one to start the stack.",font=ctk.CTkFont(size=11),text_color=MUT); self.matstack_hint.pack(anchor="w",padx=6)
@@ -377,7 +379,7 @@ class ProfileStudio(ctk.CTk):
         ctk.CTkLabel(sm,text="Smoothing",font=self.eb,text_color=SOFT).pack(side="left",padx=(0,6))
         ctk.CTkOptionMenu(sm,values=["Off","2×","4×","8×"],variable=self.smooth_level,command=lambda _v:self.render_preview(),
                           width=76,font=self.uf,fg_color=NAVY_900,button_color=BLUE,button_hover_color=BLUE_L,text_color=ON).pack(side="left")
-        ctk.CTkButton(bar,text="Render",command=self.render_preview,font=self.uf,width=90,fg_color="transparent",border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).grid(row=0,column=1,padx=(0,8))
+        ctk.CTkLabel(bar,text="preview updates as you edit",font=self.eb,text_color=MUT).grid(row=0,column=1,padx=(0,10))
         ctk.CTkButton(bar,text="Save .bmp…",command=self.save_bmp,font=self.ub,width=120,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).grid(row=0,column=2)
 
     def _footer(self):
@@ -659,10 +661,13 @@ class ProfileStudio(ctk.CTk):
             proc.render_regions(st,self.palette,out_path,npp)     # hard pixels, no AA
         else:
             import cv2
-            hi=Path(tempfile.gettempdir())/"_ipu_hi.bmp"
-            proc.render_regions(st,self.palette,hi,npp/ss)        # supersample
             minx,miny,maxx,maxy=st.cell.bounds
-            W=max(1,round((maxx-minx)/npp)); H=max(1,round((maxy-miny)/npp))
+            Wnm=maxx-minx; Hnm=maxy-miny
+            HI_CAP=4000                                           # keep the supersample bounded (no freeze)
+            hi_npp=max(npp/ss, Wnm/HI_CAP, Hnm/HI_CAP)
+            hi=Path(tempfile.gettempdir())/"_ipu_hi.bmp"
+            proc.render_regions(st,self.palette,hi,hi_npp)        # supersample (capped)
+            W=max(1,round(Wnm/npp)); H=max(1,round(Hnm/npp))
             img=cv2.resize(cv2.imread(str(hi)),(W,H),interpolation=cv2.INTER_AREA)
             cv2.imwrite(str(out_path),img)
 
