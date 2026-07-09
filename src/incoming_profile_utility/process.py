@@ -135,6 +135,23 @@ def _corner_cut(shape_list, cx, top):
     return None if u.is_empty else u
 
 
+def _rect_opening(space, open_bottom, total, bottom_r=0.0):
+    """Rectangular opening; optionally round the two BOTTOM corners (U-shape).
+    bottom_r >= space/2 gives a full semicircular bottom."""
+    x = space / 2.0
+    if bottom_r <= 0:
+        return box(-x, open_bottom, x, total)
+    r = min(bottom_r, x)
+    pts = [(-x, total), (-x, open_bottom + r)]
+    import numpy as _np
+    for a in _np.linspace(math.pi, 1.5 * math.pi, 20):          # left-bottom arc
+        pts.append((-x + r + r * math.cos(a), open_bottom + r + r * math.sin(a)))
+    for a in _np.linspace(1.5 * math.pi, 2 * math.pi, 20):      # right-bottom arc
+        pts.append((x - r + r * math.cos(a), open_bottom + r + r * math.sin(a)))
+    pts.append((x, total))
+    return Polygon(pts)
+
+
 def _build_material_stack(p: dict) -> State:
     """Vertical stack of material layers with a centered opening.
 
@@ -156,7 +173,7 @@ def _build_material_stack(p: dict) -> State:
     else:
         depth = p.get("opening_depth")
         open_bottom = 0.0 if (depth is None or depth <= 0 or depth >= total) else (total - depth)
-        opening = box(-space / 2, open_bottom, space / 2, total) if space > 0 else None
+        opening = _rect_opening(space, open_bottom, total, p.get("opening_bottom_radius", 0) or 0) if space > 0 else None
     cell = box(-pitch / 2, 0, pitch / 2, max(total + top_vac, 1.0))
     st = State(cell, [])
     y = 0.0

@@ -21,6 +21,7 @@ FIELDS = [
     ("pitch","Pitch (nm)","120","Width of one repeating unit cell = line + opening."),
     ("space","Space · opening (nm)","50","Width of the centered opening. line width = pitch − space."),
     ("opening_depth","Opening depth (nm)","","How far down from the TOP the opening is cut. Blank = all the way through."),
+    ("opening_bottom_radius","Opening bottom round (nm)","","Round the BOTTOM of the opening into a U. 0 = flat; ≈ half the Space = full semicircle."),
     ("top_vacuum","Top vacuum (nm)","20","Empty space above the stack (room to deposit on top)."),
 ]
 OP_LABELS = ["Deposit · conformal","Deposit · planar","Fill","Etch · isotropic","Etch · anisotropic","Planarize"]
