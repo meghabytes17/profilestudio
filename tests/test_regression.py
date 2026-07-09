@@ -186,3 +186,79 @@ def test_adding_material_never_touches_tracked_base(tmp_path, monkeypatch):
     after = hashlib.md5(Path(_DEFAULT_CONFIG).read_bytes()).hexdigest()
     assert before == after                                   # base untouched
     assert (tmp_path / "user_materials.json").exists()       # user delta written
+
+
+# --- additional coverage for recent features ------------------------------------
+
+def test_partial_anisotropy_between_vertical_and_isotropic():
+    """0 < anisotropy < 1 should undercut more than vertical, less than isotropic."""
+    base = dict(material_layers=[dict(material="silicon", thickness=120)],
+                pitch=200, space=40, top_vacuum=5)
+    def remaining(a):
+        st = evaluate(build_base(base), [dict(op="etch", depth=25, anisotropy=a)])
+        return [g for m, g in st.regions if m == "silicon"][0].area
+    assert remaining(1.0) > remaining(0.5) > remaining(0.0)   # more vertical -> less removed
+
+
+def test_opening_bottom_full_semicircle():
+    """radius >= half-width gives a U that narrows to ~0 at the very bottom."""
+    from shapely.geometry import box as _box
+    space = 80
+    op = _rect_opening(space, 0, 200, space)                  # radius capped to half-width
+    minx, miny, maxx, maxy = op.bounds
+    base_slab = op.intersection(_box(-999, miny, 999, miny + 1))
+    assert (base_slab.bounds[2] - base_slab.bounds[0]) < space * 0.5
+
+
+def test_taper_opens_wider_at_top():
+    """A taper on a layer widens its opening toward the top of that layer."""
+    from shapely.geometry import box as _box
+    layers = [dict(material="silicon", thickness=150, shape=[dict(kind="taper", angle=70)])]
+    st = build_base(dict(material_layers=layers, pitch=200, space=50, top_vacuum=5, opening_depth=150))
+    sil = [g for m, g in st.regions if m == "silicon"][0]
+    def opening_width(y):
+        solid = sil.intersection(_box(-100, y - 0.5, 100, y + 0.5)).area   # 1 nm strip
+        return 200 - solid
+    assert opening_width(140) > opening_width(20)
+
+
+def test_csv_reference_places_negative_below_line():
+    """height=0 lands on the reference line; negative-height points sit below it."""
+    trace = [(20, -30), (30, 0), (20, 40)]
+    poly = _trace_opening(trace, 200, ref=100)
+    assert poly.bounds[1] < 100 < poly.bounds[3]
+
+
+def test_csv_loads_valid_trace(tmp_path):
+    import pandas as pd
+    p = tmp_path / "ok.csv"
+    pd.DataFrame({"width": [0, 30, 0], "height": [0, 20, 40]}).to_csv(p, index=False)
+    df = load_trace(p)
+    assert list(df.columns)[:2] == ["width", "height"] and len(df) == 3
+
+
+def test_user_materials_merge_on_reload(tmp_path, monkeypatch):
+    """Saved user materials merge back in on the next load, with correct RGB/BGR."""
+    import incoming_profile_utility.materials as M
+    monkeypatch.setattr(M, "_USER_CONFIG", tmp_path / "user.json")
+    pal = load_palette(); pal.add("mymat", (10, 20, 30)); pal.save()
+    pal2 = load_palette()
+    assert "mymat" in pal2.names()
+    assert pal2.rgb("mymat") == (10, 20, 30)
+    assert pal2.bgr("mymat") == (30, 20, 10)
+
+
+def test_trace_to_parametric_detects_interior_bow():
+    import pandas as pd
+    from incoming_profile_utility.io_csv import trace_to_parametric
+    out = trace_to_parametric(pd.DataFrame({"width": [20, 60, 20], "height": [0, 20, 40]}))
+    assert out["feature_height"] == 40
+    assert out["bottom_width"] == 20 and out["top_width"] == 20
+    assert out.get("bow") == 60 and abs(out["bow_height"] - 20) < 1e-6
+
+
+def test_trace_to_parametric_monotonic_gives_mid_width():
+    import pandas as pd
+    from incoming_profile_utility.io_csv import trace_to_parametric
+    out = trace_to_parametric(pd.DataFrame({"width": [20, 40, 60], "height": [0, 20, 40]}))
+    assert "bow" not in out and "mid_width" in out
