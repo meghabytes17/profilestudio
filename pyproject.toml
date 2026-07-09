@@ -19,7 +19,19 @@ dependencies = [
 
 [project.optional-dependencies]
 geometry = ["shapely>=2.0"]  # for parametric profile builders (docs/03)
-dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.5", "mypy>=1.10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["incoming_profile_utility"]
+omit = ["*/gui.py", "*/main.py"]   # GUI (Tk) and CLI stub are not unit-tested
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
 
 [project.scripts]
 # Lets users run `profile-utility` from the shell once installed.

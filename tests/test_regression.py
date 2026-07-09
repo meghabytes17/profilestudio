@@ -1,0 +1,188 @@
+"""Regression tests — one per bug fixed during development, so none can silently return.
+
+Each test names the symptom it locks down. These all exercise the *engine* (pure
+geometry/logic); the customtkinter GUI is intentionally not unit-tested here.
+"""
+import hashlib
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from incoming_profile_utility.process import (
+    build_base, evaluate, _rect_opening, _corner_cut, _trace_opening,
+)
+from incoming_profile_utility.materials import load_palette, _DEFAULT_CONFIG
+from incoming_profile_utility.io_csv import load_trace
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _areas(st):
+    return {m: g.area for m, g in st.regions}
+
+
+def _stack(**kw):
+    kw.setdefault("pitch", 120)
+    kw.setdefault("top_vacuum", 10)
+    return build_base(kw)
+
+
+# --- material-stack base geometry ---------------------------------------------
+
+def test_space_equals_opening_width_no_doubling():
+    """'space' maps directly to the opening width (it used to double)."""
+    st = _stack(material_layers=[dict(material="silicon", thickness=60)], space=40)
+    assert abs(_areas(st)["silicon"] - (120 * 60 - 40 * 60)) < 1e-6
+
+
+def test_row1_is_top_of_stack():
+    """The first layer in the list renders at the TOP (build order was reversed)."""
+    st = _stack(material_layers=[dict(material="nitride", thickness=20),
+                                 dict(material="silicon", thickness=40)], space=0)
+    nitride = [g for m, g in st.regions if m == "nitride"][0]
+    silicon = [g for m, g in st.regions if m == "silicon"][0]
+    assert nitride.bounds[1] > silicon.bounds[1]     # nitride sits higher
+
+
+def test_layers_tile_with_no_gap_or_overlap():
+    st = _stack(material_layers=[dict(material="silicon", thickness=30),
+                                 dict(material="oxide", thickness=30)], space=0)
+    assert abs(sum(g.area for _, g in st.regions) - 120 * 60) < 1e-6
+
+
+def test_opening_depth_leaves_bottom_layer_solid():
+    layers = [dict(material="nitride", thickness=20),
+              dict(material="oxide", thickness=20),
+              dict(material="silicon", thickness=40)]
+    st = build_base(dict(material_layers=layers, pitch=120, space=50, opening_depth=30))
+    silicon = [g for m, g in st.regions if m == "silicon"][0]
+    assert abs(silicon.area - 120 * 40) < 1e-6       # untouched below the opening
+
+
+def test_top_vacuum_adds_headroom():
+    st = build_base(dict(material_layers=[dict(material="silicon", thickness=50)],
+                         pitch=100, space=0, top_vacuum=20))
+    assert abs(st.cell.bounds[3] - 70) < 1e-6        # 50 + 20
+
+
+# --- process ops --------------------------------------------------------------
+
+def test_conformal_deposit_on_empty_is_a_blanket():
+    """Depositing onto a blank canvas produced nothing; now it blankets."""
+    base = build_base(dict(material_layers=[], pitch=120, space=0, top_vacuum=0))
+    st = evaluate(base, [dict(op="conformal_deposit", material="oxide", thickness=20)])
+    assert "oxide" in _areas(st)
+
+
+def test_conformal_deposit_grows_cell_for_top_coating():
+    """A top-surface film was clipped when there was no headroom; now the cell grows."""
+    base = build_base(dict(material_layers=[dict(material="silicon", thickness=40)],
+                           pitch=120, space=40, top_vacuum=2))
+    top0 = base.cell.bounds[3]
+    st = evaluate(base, [dict(op="conformal_deposit", material="oxide", thickness=15)])
+    assert st.cell.bounds[3] > top0
+
+
+def test_selective_etch_leaves_other_materials():
+    """Etch used to remove everything; with a material it removes only that one."""
+    base = build_base(dict(material_layers=[dict(material="hardmask", thickness=20),
+                                            dict(material="silicon", thickness=40)],
+                           pitch=120, space=0, top_vacuum=5))
+    a0 = _areas(base)
+    st = evaluate(base, [dict(op="etch", depth=15, anisotropy=1.0, material="hardmask")])
+    a1 = _areas(st)
+    assert abs(a1["silicon"] - a0["silicon"]) < 1e-6
+    assert a1["hardmask"] < a0["hardmask"]
+
+
+def test_isotropic_etch_undercuts_laterally():
+    """Isotropic etch was a rectangular vertical cut; now it expands in all directions."""
+    base = dict(material_layers=[dict(material="silicon", thickness=120)],
+                pitch=200, space=40, top_vacuum=5)
+    iso = evaluate(build_base(base), [dict(op="etch", depth=25, anisotropy=0.0)])
+    ani = evaluate(build_base(base), [dict(op="etch", depth=25, anisotropy=1.0)])
+    sil_iso = [g for m, g in iso.regions if m == "silicon"][0]
+    sil_ani = [g for m, g in ani.regions if m == "silicon"][0]
+    assert sil_iso.area < sil_ani.area               # isotropic removes more (undercut)
+
+
+# --- per-layer corner shapes --------------------------------------------------
+
+def test_taper_angle_is_from_horizontal():
+    """taper angle is the sidewall angle from horizontal: 90 = vertical (no cut)."""
+    assert _corner_cut([dict(kind="taper", angle=90)], 20, 100, 0) is None
+    cut = _corner_cut([dict(kind="taper", angle=45)], 20, 100, 0)
+    assert cut is not None and cut.area > 0
+
+
+def test_facet_needs_depth_to_do_anything():
+    """facet with depth 0 was a silent no-op; assert the contract explicitly."""
+    assert _corner_cut([dict(kind="facet", angle=45, depth=0)], 20, 100) is None
+    assert _corner_cut([dict(kind="facet", angle=45, depth=20)], 20, 100).area > 0
+
+
+def test_treatments_combine():
+    both = _corner_cut([dict(kind="chamfer", s=10), dict(kind="round", r=15)], 20, 100)
+    assert both is not None and both.area > 0
+
+
+# --- bottom rounding: the "side location conflict" crash ----------------------
+
+@pytest.mark.parametrize("depth,radius", [(30, 40), (20, 60), (15, 50), (200, 47)])
+def test_rounded_bottom_is_always_valid(depth, radius):
+    """Shallow opening + big radius twisted the polygon (GEOS 'side location conflict')."""
+    op = _rect_opening(80, 240 - depth, 240, radius)
+    assert op.is_valid
+
+
+def test_shallow_bottom_round_builds_and_processes():
+    p = dict(material_layers=[dict(material="indigo", thickness=240)], pitch=210,
+             space=80, top_vacuum=20, opening_depth=30, opening_bottom_radius=40)
+    st = evaluate(build_base(p), [dict(op="etch", depth=10, anisotropy=0.0)])  # must not raise
+    assert st.regions
+
+
+# --- CSV loading --------------------------------------------------------------
+
+def test_csv_rejects_ragged_rows(tmp_path):
+    """Mismatched column lengths (NaN) crashed the rasterizer; now rejected up front."""
+    p = tmp_path / "bad.csv"
+    p.write_text("width,height\n0,0\n10,50\n20\n")
+    with pytest.raises(ValueError):
+        load_trace(p)
+
+
+def test_csv_negative_width_rejected(tmp_path):
+    p = tmp_path / "nw.csv"
+    pd.DataFrame({"width": [0, -10, 20], "height": [0, 1, 2]}).to_csv(p, index=False)
+    with pytest.raises(ValueError):
+        load_trace(p)
+
+
+def test_csv_negative_height_normalized(tmp_path):
+    p = tmp_path / "nh.csv"
+    pd.DataFrame({"width": [0, 10, 20], "height": [-30, 20, 70]}).to_csv(p, index=False)
+    assert abs(float(load_trace(p)["height"].min())) < 1e-9          # shifted to 0
+    assert float(load_trace(p, normalize=False)["height"].min()) == -30  # raw kept
+
+
+def test_csv_opening_reference_line():
+    trace = [(30, 0), (30, 40)]
+    assert abs(_trace_opening(trace, 100).bounds[3] - 100) < 1e-6      # top-aligned
+    assert abs(_trace_opening(trace, 100, ref=0).bounds[1] - 0) < 1e-6  # height=0 at y=0
+
+
+# --- materials persistence ----------------------------------------------------
+
+def test_adding_material_never_touches_tracked_base(tmp_path, monkeypatch):
+    """The app used to rewrite the tracked config, breaking every git pull."""
+    import incoming_profile_utility.materials as M
+    monkeypatch.setattr(M, "_USER_CONFIG", tmp_path / "user_materials.json")
+    before = hashlib.md5(Path(_DEFAULT_CONFIG).read_bytes()).hexdigest()
+    pal = load_palette()
+    pal.add("zzz_regression", (1, 2, 3))
+    pal.save()
+    after = hashlib.md5(Path(_DEFAULT_CONFIG).read_bytes()).hexdigest()
+    assert before == after                                   # base untouched
+    assert (tmp_path / "user_materials.json").exists()       # user delta written
