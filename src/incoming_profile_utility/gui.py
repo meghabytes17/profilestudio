@@ -132,7 +132,7 @@ class MaterialLayerRow:
         self.shape_btn.configure(text=f"◐ shape ({len(self.shape)})" if self.shape else "◐ shape",
                                  text_color=(GREEN if self.shape else SOFT))
     def _on_mat(self,_v):
-        self.sw.configure(fg_color=self.app.palette.hex(self.mat.get())); self.app.render_preview()
+        self.sw.configure(fg_color=self.app.palette.hex(self.mat.get())); self.app._refresh_op_materials(); self.app.render_preview()
     def to_layer(self):
         try: t=float(self.th.get())
         except ValueError: t=0.0
@@ -167,7 +167,7 @@ class OpRow:
         self._sync()
     def _on_type(self,_v): self._sync(); self.host.app._schedule_render()
     def _sync(self):
-        lbl=self.optype.get(); names=self.host.app.palette.names()
+        lbl=self.optype.get(); names=self.host.app._op_material_choices()
         if lbl in ("Etch · isotropic","Etch · anisotropic"):
             vals=["(any)"]+names; self.mat.configure(state="normal", values=vals)
             if self.mat.get() not in vals: self.mat.set("(any)")
@@ -319,6 +319,11 @@ class ProfileStudio(ctk.CTk):
         self.csv_label=ctk.CTkLabel(bs,text="Opening: rectangular (from Space). Load a CSV to use a trace shape instead.",
                                     font=self.eb,text_color=MUT,wraplength=520,justify="left")
         self.csv_label.grid(row=len(FIELDS)+2,column=0,columnspan=3,sticky="w",padx=8,pady=(2,2))
+        self.csv_ref_entry=ctk.CTkEntry(bs,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120,placeholder_text="top")
+        self.csv_ref_entry.bind("<KeyRelease>",self._schedule_render)
+        self._row(bs,len(FIELDS)+3,"CSV height=0 at (nm)",
+                  "Where the CSV's height=0 line sits, measured in nm from the stack bottom. Blank = top-align (trace top at the stack top). Points with negative height sit below this line.",
+                  self.csv_ref_entry)
 
         ps=ctk.CTkFrame(self.param_page,fg_color="transparent"); ps.pack(fill="x",pady=(8,8))
         ctk.CTkLabel(ps,text="PROCESS STACK",font=self.eb,text_color=BLUE_L).pack(anchor="w",padx=6)
@@ -370,11 +375,26 @@ class ProfileStudio(ctk.CTk):
         i=self.matlayer_rows.index(row); j=i+delta
         if 0<=j<len(self.matlayer_rows):
             self._capture(); self.matlayer_rows[i],self.matlayer_rows[j]=self.matlayer_rows[j],self.matlayer_rows[i]; self._relayout_matstack(); self.render_preview()
+    def _op_material_choices(self):
+        mats=[]
+        for r in self.matlayer_rows:
+            m=r.mat.get()
+            if m and m not in mats: mats.append(m)
+        return mats or self.palette.names()     # fall back to palette when stack is empty
+
+    def _refresh_op_materials(self):
+        def walk(lst):
+            for r in lst.rows:
+                if isinstance(r,OpRow): r._sync()
+                elif isinstance(r,RepeatRow): walk(r.sub)
+        if hasattr(self,"stack"): walk(self.stack)
+
     def _relayout_matstack(self):
         for n,row in enumerate(self.matlayer_rows,1):
             row.frame.pack_forget(); row.frame.pack(fill="x",padx=6,pady=3); row.badge_lbl.configure(text=str(n))
         self.matstack_hint.pack_forget()
         if not self.matlayer_rows: self.matstack_hint.pack(anchor="w",padx=6)
+        self._refresh_op_materials()
     def _drag_start(self,row): self._drag=row
     def _drag_drop(self,row):
         if self._drag is None: return
@@ -392,7 +412,8 @@ class ProfileStudio(ctk.CTk):
                     ops=self.stack.to_ops(),
                     fields={k:self.entries[k].get() for k in self.entries},
                     scale=self.scale_entry.get(),
-                    trace=self.opening_trace)
+                    trace=self.opening_trace,
+                    csv_ref=self.csv_ref_entry.get())
     def _capture(self):
         if self._loading: return
         self._undo.append(self._snapshot())
@@ -423,6 +444,7 @@ class ProfileStudio(ctk.CTk):
             for k,v in snap["fields"].items():
                 if k in self.entries: self.entries[k].delete(0,"end"); self.entries[k].insert(0,v)
             self.scale_entry.delete(0,"end"); self.scale_entry.insert(0,snap["scale"])
+            self.csv_ref_entry.delete(0,"end"); self.csv_ref_entry.insert(0,snap.get("csv_ref",""))
             self.opening_trace=snap.get("trace")
             self.csv_label.configure(
                 text=(f"✓ CSV opening loaded ({len(self.opening_trace)} pts)." if self.opening_trace
@@ -434,14 +456,9 @@ class ProfileStudio(ctk.CTk):
 
     def _update_menus(self):
         names=self.palette.names()
-        def orows(lst):
-            out=[]
-            for r in lst.rows:
-                if isinstance(r,OpRow): out.append(r.mat)
-                elif isinstance(r,RepeatRow): out+=orows(r.sub)
-            return out
-        for om in self.material_menus+orows(self.stack)+[r.mat for r in self.matlayer_rows]:
+        for om in self.material_menus+[r.mat for r in self.matlayer_rows]:
             cur=om.get(); om.configure(values=names); om.set(cur)
+        self._refresh_op_materials()
 
     def _edit_shape(self, row):
         dlg=ctk.CTkToplevel(self); dlg.title("Top-corner shape"); dlg.geometry("440x380"); dlg.configure(fg_color=NAVY_800); dlg.transient(self)
@@ -526,7 +543,7 @@ class ProfileStudio(ctk.CTk):
         path=filedialog.askopenfilename(parent=self, filetypes=[("CSV","*.csv")])
         if not path: return
         try:
-            df=load_trace(path)
+            df=load_trace(path, normalize=False)
         except Exception as exc:
             self.csv_label.configure(text=f"⚠ {exc}", text_color="#E58B8B"); return
         self._capture()
@@ -551,8 +568,17 @@ class ProfileStudio(ctk.CTk):
                 try: p[k]=float(v)
                 except ValueError: pass
         p["material_layers"]=[r.to_layer() for r in self.matlayer_rows]
-        if self.opening_trace: p["opening_trace"]=self.opening_trace
+        if self.opening_trace:
+            p["opening_trace"]=self.opening_trace
+            ref=self._csv_ref()
+            if ref is not None: p["opening_ref"]=ref
         return p
+
+    def _csv_ref(self):
+        v=self.csv_ref_entry.get().strip()
+        if not v: return None
+        try: return float(v)
+        except ValueError: return None
 
     def _scale(self):
         v=self.scale_entry.get().strip()
@@ -592,6 +618,7 @@ class ProfileStudio(ctk.CTk):
         for r in list(self.matlayer_rows): r.frame.destroy()
         self.matlayer_rows=[]; self._relayout_matstack()
         self.opening_trace=None
+        self.csv_ref_entry.delete(0,"end")
         self.csv_label.configure(text="Opening: rectangular (from Space). Load a CSV to use a trace shape instead.", text_color=MUT)
         for k,label,default,info in FIELDS:
             self.entries[k].delete(0,"end"); self.entries[k].insert(0,default)

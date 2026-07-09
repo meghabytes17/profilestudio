@@ -93,14 +93,21 @@ def mask_polygon(width, height, base_y, corner="square", facet_angle=45.0, radiu
 #   trench    : inverted default — vacuum trench carved into surround + mask
 #   line      : a solid feature (CD curve) standing in vacuum + mask
 # --------------------------------------------------------------------------- #
-def _trace_opening(trace, total_h):
-    """Build a symmetric opening polygon from a width/height trace, positioned so the
-    trace's top sits at the top of the material stack (opening cut from the top down)."""
+def _trace_opening(trace, total_h, ref=None):
+    """Symmetric opening polygon from a width/height trace.
+
+    ref is None -> top-align (trace's top at the stack top). Otherwise ref is the
+    y-height (from the stack bottom) where the trace's height=0 is placed, and the
+    trace extends up/down from there (its own height values, so negative heights sit
+    below the reference).
+    """
     pts = sorted(((float(w), float(h)) for w, h in trace), key=lambda t: t[1])
     if not pts:
         return None
-    hmax = max(h for _, h in pts)
-    off = total_h - hmax                      # align trace top with stack top
+    if ref is None:
+        off = total_h - max(h for _, h in pts)     # top-align
+    else:
+        off = float(ref)                           # height=0 -> ref line
     right = [(w / 2.0, h + off) for w, h in pts]
     left = [(-w / 2.0, h + off) for w, h in pts][::-1]
     poly = Polygon(right + left)
@@ -169,7 +176,7 @@ def _build_material_stack(p: dict) -> State:
     trace = p.get("opening_trace")
     open_bottom = 0.0
     if trace:
-        opening = _trace_opening(trace, total)
+        opening = _trace_opening(trace, total, p.get("opening_ref"))
     else:
         depth = p.get("opening_depth")
         open_bottom = 0.0 if (depth is None or depth <= 0 or depth >= total) else (total - depth)
@@ -302,10 +309,14 @@ def etch(state: State, depth: float, anisotropy: float = 1.0,
     if mode == "isotropic": anisotropy = 0.0
     elif mode == "anisotropic": anisotropy = 1.0
     a = min(max(float(anisotropy), 0.0), 1.0)
-    lateral = depth * (1.0 - a)
-    removal = _extrude_down(state.open(), depth)
-    if lateral > 1e-9:
-        removal = removal.buffer(lateral, join_style=2)
+    op = state.open()
+    if a <= 1e-6:
+        removal = op.buffer(depth, join_style=1)              # isotropic: equal in all directions, rounded
+    else:
+        removal = _extrude_down(op, depth)                    # vertical component
+        lateral = depth * (1.0 - a)
+        if lateral > 1e-9:
+            removal = removal.buffer(lateral, join_style=1)   # rounded lateral undercut
     removal = removal.intersection(state.solid())
     tgt = None if material in (None, "", "(any)") else material
     new = []

@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 
-def load_trace(path: str | Path) -> pd.DataFrame:
+def load_trace(path: str | Path, normalize: bool = True) -> pd.DataFrame:
     """Load a width/height trace CSV into a validated DataFrame (columns: width, height)."""
     csv = pd.read_csv(path, float_precision="round_trip")
     wcol = [c for c in csv.columns if c.lower() == "width"]
@@ -29,7 +29,7 @@ def load_trace(path: str | Path) -> pd.DataFrame:
         raise ValueError("Width must be non-negative — it is the full CD (a size, "
                          "spanning ±width/2 about the centerline), not an x-coordinate.")
     hmin = float(df["height"].min())
-    if hmin < 0:
+    if normalize and hmin < 0:
         df["height"] = df["height"] - hmin   # height is a position; shift so the base = 0
     return df
 
