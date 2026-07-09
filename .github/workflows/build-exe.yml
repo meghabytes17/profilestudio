@@ -1,0 +1,34 @@
+name: build-exe
+
+on:
+  workflow_dispatch:            # manual "Run workflow" button
+  push:
+    tags: ["v*"]               # e.g. git tag v0.1.0 && git push --tags
+
+permissions:
+  contents: write              # needed to attach the exe to a release
+
+jobs:
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[geometry]" pyinstaller
+      - name: Build exe
+        run: pyinstaller --clean --noconfirm incoming_profile_utility.spec
+      - name: Upload artifact (download from the Actions run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: IncomingProfileUtility-windows
+          path: dist/IncomingProfileUtility.exe
+      - name: Attach to release (on tags)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/IncomingProfileUtility.exe

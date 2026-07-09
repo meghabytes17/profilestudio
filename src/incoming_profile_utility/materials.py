@@ -10,12 +10,36 @@ time. This palette is independent of the GUI's brand theme.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 
+
+def _base_dir() -> Path:
+    """Directory that holds bundled read-only data (config/…)."""
+    if getattr(sys, "frozen", False):                       # PyInstaller build
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parents[2]              # repo root (src/pkg -> ../..)
+
+
+def _user_dir() -> Path:
+    """Writable directory for user-added materials."""
+    if getattr(sys, "frozen", False):
+        root = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
+        d = Path(root) / "IncomingProfileUtility"
+    else:
+        d = Path(__file__).resolve().parents[2] / "config"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        d = Path.home()
+    return d
+
+
 # config/materials.json = the tracked BASE palette (the app never writes to it).
-_DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "materials.json"
-# user-added materials persist here, OUT of version control (see .gitignore).
-_USER_CONFIG = Path(__file__).resolve().parents[2] / "config" / "user_materials.json"
+_DEFAULT_CONFIG = _base_dir() / "config" / "materials.json"
+# user-added materials persist here, OUT of version control / next to the app when frozen.
+_USER_CONFIG = _user_dir() / "user_materials.json"
 
 # Baked-in fallback so the package works even without the config file.
 _FALLBACK = {
