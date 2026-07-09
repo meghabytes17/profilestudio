@@ -269,10 +269,10 @@ class ProfileStudio(ctk.CTk):
         widget.grid(row=r,column=2,sticky="ew",padx=(0,8),pady=5)
 
     def _header(self):
-        h=ctk.CTkFrame(self,fg_color=NAVY_900,corner_radius=0,height=66); h.grid(row=0,column=0,sticky="ew"); h.grid_propagate(False); h.grid_columnconfigure(0,weight=1)
-        b=ctk.CTkFrame(h,fg_color="transparent"); b.grid(row=0,column=0,sticky="w",padx=22,pady=12)
+        h=ctk.CTkFrame(self,fg_color=NAVY_900,corner_radius=0,height=54); h.grid(row=0,column=0,sticky="ew"); h.grid_propagate(False); h.grid_columnconfigure(0,weight=1)
+        b=ctk.CTkFrame(h,fg_color="transparent"); b.grid(row=0,column=0,sticky="w",padx=22,pady=6)
         ctk.CTkLabel(b,text="SANDBOX · PROFILE STUDIO",font=self.eb,text_color=BLUE_L).pack(anchor="w")
-        ctk.CTkLabel(b,text="Incoming Profile Utility",font=self.tf,text_color=ON).pack(anchor="w")
+        ctk.CTkLabel(b,text="Incoming Profile Utility",font=self.ub,text_color=ON).pack(anchor="w")
         pill=ctk.CTkFrame(h,fg_color=GREEN,corner_radius=999); pill.grid(row=0,column=1,sticky="e",padx=22)
         ctk.CTkLabel(pill,text="v1",font=self.mono,text_color=GREEN_INK).pack(padx=12,pady=3)
 
@@ -286,19 +286,22 @@ class ProfileStudio(ctk.CTk):
         m.set(default); self.material_menus.append(m); return m
 
     def _toolbar(self):
-        tb=ctk.CTkFrame(self,fg_color=NAVY_800,corner_radius=0,height=46); tb.grid(row=1,column=0,sticky="ew"); tb.grid_propagate(False)
-        inner=ctk.CTkFrame(tb,fg_color="transparent"); inner.pack(side="left",padx=16,pady=7)
-        def tbtn(text,cmd,accent=False):
-            ctk.CTkButton(inner,text=text,command=cmd,font=self.uf,width=70,height=30,
+        tb=ctk.CTkFrame(self,fg_color=NAVY_800,corner_radius=0,height=36); tb.grid(row=1,column=0,sticky="ew")
+        tb.pack_propagate(False)                       # children are packed; keep the strip slim
+        inner=ctk.CTkFrame(tb,fg_color="transparent"); inner.pack(side="left",padx=10,pady=4)
+        def tbtn(text,cmd,tip,accent=False,w=48):
+            btn=ctk.CTkButton(inner,text=text,command=cmd,font=self.uf,width=w,height=26,corner_radius=5,
                 fg_color=(GREEN if accent else "transparent"),text_color=(GREEN_INK if accent else ON),
-                border_width=(0 if accent else 1),border_color=BLUE_L,hover_color=(GREEN_D if accent else NAVY_700)).pack(side="left",padx=3)
+                border_width=0,hover_color=(GREEN_D if accent else NAVY_700))
+            btn.pack(side="left",padx=1); Tooltip(btn,tip)
         def sep():
-            ctk.CTkFrame(inner,width=1,fg_color=NAVY_700).pack(side="left",fill="y",padx=8,pady=4)
-        tbtn("Open…",self._open_project); tbtn("Save…",self._save_project,accent=True); sep()
-        tbtn("↶ Undo",self._undo_action); tbtn("↷ Redo",self._redo_action); sep()
-        tbtn("↺ Reset",self._reset)
-        ctk.CTkLabel(tb,text="project = your full setup (materials, base, process) · Save .bmp exports the image",
-                     font=self.eb,text_color=MUT).pack(side="right",padx=18)
+            ctk.CTkFrame(inner,width=1,height=20,fg_color=NAVY_700).pack(side="left",padx=6)
+        tbtn("Open",self._open_project,"Open a saved project (.json)")
+        tbtn("Save",self._save_project,"Save the whole project — materials, base feature, process stack — to a .json file",accent=True)
+        sep()
+        tbtn("↶",self._undo_action,"Undo",w=30); tbtn("↷",self._redo_action,"Redo",w=30)
+        sep()
+        tbtn("↺",self._reset,"Reset everything to a blank canvas",w=30)
 
     def _body(self):
         body=ctk.CTkFrame(self,fg_color="transparent"); body.grid(row=2,column=0,sticky="nsew",padx=18,pady=16)
