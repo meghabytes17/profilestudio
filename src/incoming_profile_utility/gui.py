@@ -259,8 +259,10 @@ class ProfileStudio(ctk.CTk):
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
+        self.hf=ctk.CTkFont(family="Inter",size=22,weight="bold")   # header title
         self.grid_columnconfigure(0,weight=1); self.grid_rowconfigure(2,weight=1)
         self._header(); self._toolbar(); self._body(); self._footer()
+        self.bind_class("Entry","<FocusIn>", lambda e: self._capture())   # one undo step per field edit
         self.after(160, self.render_preview)
 
     def _row(self,parent,r,label,info,widget):
@@ -270,9 +272,8 @@ class ProfileStudio(ctk.CTk):
 
     def _header(self):
         h=ctk.CTkFrame(self,fg_color=NAVY_900,corner_radius=0,height=54); h.grid(row=0,column=0,sticky="ew"); h.grid_propagate(False); h.grid_columnconfigure(0,weight=1)
-        b=ctk.CTkFrame(h,fg_color="transparent"); b.grid(row=0,column=0,sticky="w",padx=22,pady=6)
-        ctk.CTkLabel(b,text="SANDBOX · PROFILE STUDIO",font=self.eb,text_color=BLUE_L).pack(anchor="w")
-        ctk.CTkLabel(b,text="Incoming Profile Utility",font=self.ub,text_color=ON).pack(anchor="w")
+        b=ctk.CTkFrame(h,fg_color="transparent"); b.grid(row=0,column=0,sticky="w",padx=22,pady=10)
+        ctk.CTkLabel(b,text="SANDBOX · PROFILE STUDIO",font=self.hf,text_color=ON).pack(anchor="w")
         pill=ctk.CTkFrame(h,fg_color=GREEN,corner_radius=999); pill.grid(row=0,column=1,sticky="e",padx=22)
         ctk.CTkLabel(pill,text="v1",font=self.mono,text_color=GREEN_INK).pack(padx=12,pady=3)
 
@@ -299,9 +300,10 @@ class ProfileStudio(ctk.CTk):
         tbtn("Open",self._open_project,"Open a saved project (.json)")
         tbtn("Save",self._save_project,"Save the whole project — materials, base feature, process stack — to a .json file",accent=True)
         sep()
-        tbtn("↶",self._undo_action,"Undo",w=30); tbtn("↷",self._redo_action,"Redo",w=30)
+        tbtn("↶ Undo",self._undo_action,"Undo the last change",w=68)
+        tbtn("↷ Redo",self._redo_action,"Redo",w=66)
         sep()
-        tbtn("↺",self._reset,"Reset everything to a blank canvas",w=30)
+        tbtn("↺ Reset",self._reset,"Reset everything to a blank canvas",w=70)
 
     def _body(self):
         body=ctk.CTkFrame(self,fg_color="transparent"); body.grid(row=2,column=0,sticky="nsew",padx=18,pady=16)
@@ -431,7 +433,9 @@ class ProfileStudio(ctk.CTk):
                     csv_ref=self.csv_ref_entry.get())
     def _capture(self):
         if self._loading: return
-        self._undo.append(self._snapshot()); self._redo.clear()
+        snap=self._snapshot()
+        if self._undo and self._undo[-1]==snap: return      # skip no-op duplicates
+        self._undo.append(snap); self._redo.clear()
         if len(self._undo)>50: self._undo.pop(0)
     def _undo_action(self):
         if not self._undo: return
