@@ -331,24 +331,28 @@ class ProfileStudio(ctk.CTk):
         ctk.CTkButton(addrow,text="＋ New material (color)",command=self._add_material,font=self.uf,fg_color="transparent",
                       border_width=1,border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
 
+        # CSV lives with the stack — it defines the whole opening profile (overrides Space).
+        csvf=ctk.CTkFrame(self.param_page,fg_color="transparent"); csvf.pack(fill="x",pady=(8,2)); csvf.grid_columnconfigure(2,weight=1)
+        ctk.CTkLabel(csvf,text="OPENING FROM CSV  (optional — defines the profile, overrides Space)",font=self.eb,text_color=BLUE_L).grid(row=0,column=0,columnspan=3,sticky="w",padx=6,pady=(2,2))
+        ocsv=ctk.CTkFrame(csvf,fg_color="transparent"); ocsv.grid(row=1,column=0,columnspan=3,sticky="ew",padx=6)
+        ctk.CTkButton(ocsv,text="Load CSV…",command=self._load_csv,font=self.uf,fg_color=NAVY_900,border_width=1,
+                      border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
+        ctk.CTkButton(ocsv,text="Clear",command=self._clear_csv,font=self.uf,fg_color="transparent",border_width=1,
+                      border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700,width=70).pack(side="left",padx=2)
+        self.csv_label=ctk.CTkLabel(csvf,text="No CSV loaded — the opening is rectangular (from Space below).",
+                                    font=self.eb,text_color=MUT,wraplength=520,justify="left")
+        self.csv_label.grid(row=2,column=0,columnspan=3,sticky="w",padx=8,pady=(2,2))
+        self.csv_ref_entry=ctk.CTkEntry(csvf,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120,placeholder_text="top")
+        self.csv_ref_entry.bind("<KeyRelease>",self._schedule_render)
+        self._row(csvf,3,"CSV height=0 at (nm)",
+                  "Where the CSV's height=0 line sits, measured in nm from the stack bottom. Blank = top-align (trace top at the stack top). Points with negative height sit below this line.",
+                  self.csv_ref_entry)
+
         bs=ctk.CTkFrame(self.param_page,fg_color="transparent"); bs.pack(fill="x",pady=(8,4)); bs.grid_columnconfigure(2,weight=1)
         ctk.CTkLabel(bs,text="BASE FEATURE",font=self.eb,text_color=BLUE_L).grid(row=0,column=0,columnspan=3,sticky="w",padx=8,pady=(4,2))
         for i,(k,label,default,info) in enumerate(FIELDS,1):
             e=ctk.CTkEntry(bs,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
             e.insert(0,default); e.bind("<KeyRelease>",self._schedule_render); self._row(bs,i,label,info,e); self.entries[k]=e
-        ocsv=ctk.CTkFrame(bs,fg_color="transparent"); ocsv.grid(row=len(FIELDS)+1,column=0,columnspan=3,sticky="ew",padx=6,pady=(6,0))
-        ctk.CTkButton(ocsv,text="Load CSV…",command=self._load_csv,font=self.uf,fg_color=NAVY_900,border_width=1,
-                      border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
-        ctk.CTkButton(ocsv,text="Clear",command=self._clear_csv,font=self.uf,fg_color="transparent",border_width=1,
-                      border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700,width=70).pack(side="left",padx=2)
-        self.csv_label=ctk.CTkLabel(bs,text="Opening: rectangular (from Space). Load a CSV to use a trace profile instead.",
-                                    font=self.eb,text_color=MUT,wraplength=520,justify="left")
-        self.csv_label.grid(row=len(FIELDS)+2,column=0,columnspan=3,sticky="w",padx=8,pady=(2,2))
-        self.csv_ref_entry=ctk.CTkEntry(bs,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120,placeholder_text="top")
-        self.csv_ref_entry.bind("<KeyRelease>",self._schedule_render)
-        self._row(bs,len(FIELDS)+3,"CSV height=0 at (nm)",
-                  "Where the CSV's height=0 line sits, measured in nm from the stack bottom. Blank = top-align (trace top at the stack top). Points with negative height sit below this line.",
-                  self.csv_ref_entry)
 
         ps=ctk.CTkFrame(self.param_page,fg_color="transparent"); ps.pack(fill="x",pady=(8,8))
         ctk.CTkLabel(ps,text="PROCESS STACK",font=self.eb,text_color=BLUE_L).pack(anchor="w",padx=6)
@@ -379,7 +383,7 @@ class ProfileStudio(ctk.CTk):
         ctk.CTkLabel(sm,text="Smoothing",font=self.eb,text_color=SOFT).pack(side="left",padx=(0,6))
         ctk.CTkOptionMenu(sm,values=["Off","2×","4×","8×"],variable=self.smooth_level,command=lambda _v:self.render_preview(),
                           width=76,font=self.uf,fg_color=NAVY_900,button_color=BLUE,button_hover_color=BLUE_L,text_color=ON).pack(side="left")
-        ctk.CTkLabel(bar,text="preview updates as you edit",font=self.eb,text_color=MUT).grid(row=0,column=1,padx=(0,10))
+        self.preview_note=ctk.CTkLabel(bar,text="preview updates as you edit",font=self.eb,text_color=MUT); self.preview_note.grid(row=0,column=1,padx=(0,10))
         ctk.CTkButton(bar,text="Save .bmp…",command=self.save_bmp,font=self.ub,width=120,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).grid(row=0,column=2)
 
     def _footer(self):
@@ -642,20 +646,17 @@ class ProfileStudio(ctk.CTk):
         try: return float(v)
         except ValueError: return None
 
-    def _resolve_npp(self, st):
-        manual=self._scale()
-        if manual and manual>0: return manual
+    def _resolve_npp(self, st, cap=1600):
         minx,miny,maxx,maxy=st.cell.bounds
         W=max(maxx-minx,1.0); H=max(maxy-miny,1.0)
-        npp=H/1000.0                          # target ~1000 px tall
-        CAP=2400                              # but never exceed this many px on either side
-        if W/npp>CAP: npp=W/CAP
-        if H/npp>CAP: npp=H/CAP
-        return max(npp,0.005)
+        manual=self._scale()
+        npp = manual if (manual and manual>0) else H/1000.0     # manual value, else ~1000 px tall
+        npp = max(npp, W/cap, H/cap, 0.005)                     # clamp so neither side exceeds `cap` px
+        return npp
 
-    def _render_to(self,out_path):
+    def _render_to(self,out_path,for_save=False):
         base=proc.build_base(self._params()); st=proc.evaluate(base,self.stack.to_ops()); self._last_state=st
-        npp=self._resolve_npp(st); self._last_npp=npp
+        npp=self._resolve_npp(st, cap=12000 if for_save else 1600); self._last_npp=npp
         ss={"Off":1,"2×":2,"4×":4,"8×":8}.get(self.smooth_level.get(),1)
         if ss==1:
             proc.render_regions(st,self.palette,out_path,npp)     # hard pixels, no AA
@@ -720,15 +721,27 @@ class ProfileStudio(ctk.CTk):
             reach=(not trace) and (space is not None and space>0) and (topmap.get(id(r),0)>open_bottom+1e-9)
             r.shape_btn.configure(state="normal" if reach else "disabled")
 
+    def _update_csv_field_state(self):
+        # Space / Opening depth / bottom-round are ignored while a CSV drives the opening.
+        disabled = self.opening_trace is not None
+        for k in ("space","opening_depth","opening_bottom_radius"):
+            e=self.entries.get(k)
+            if e is not None:
+                try: e.configure(state="disabled" if disabled else "normal")
+                except Exception: pass
+
     def render_preview(self):
         self._job=None
         if self._loading: return
         self._update_shape_availability()
+        self._update_csv_field_state()
         try:
             tmp=Path(tempfile.gettempdir())/"_ipu_preview.bmp"; self._render_to(tmp)
             disp=compose_preview(tmp,self._last_npp,target_h=440)
             self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
             self._update_legend()
+            mode="" if self._scale() else " (auto)"
+            self.preview_note.configure(text=f"{self._last_npp:.3g} nm/px{mode} · updates live")
         except Exception as exc:
             self.preview.configure(image=None,text=f"⚠ {exc}",text_color=MUT)
 
@@ -736,7 +749,7 @@ class ProfileStudio(ctk.CTk):
         from tkinter import filedialog
         path=filedialog.asksaveasfilename(defaultextension=".bmp",filetypes=[("Bitmap","*.bmp")],initialfile="profile.bmp")
         if not path: return
-        self._render_to(path)   # full-resolution, no anti-aliasing
+        self._render_to(path, for_save=True)   # full-resolution, no anti-aliasing
         self.title(f"Incoming Profile Utility — saved {Path(path).name}")
 
 
