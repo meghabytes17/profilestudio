@@ -12,8 +12,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-# config/materials.json lives at the repo root (two levels up from this file's src dir)
+# config/materials.json = the tracked BASE palette (the app never writes to it).
 _DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "materials.json"
+# user-added materials persist here, OUT of version control (see .gitignore).
+_USER_CONFIG = Path(__file__).resolve().parents[2] / "config" / "user_materials.json"
 
 # Baked-in fallback so the package works even without the config file.
 _FALLBACK = {
@@ -30,9 +32,10 @@ _FALLBACK = {
 class Palette:
     """A loaded material palette: name -> color, plus default region assignments."""
 
-    def __init__(self, data: dict):
+    def __init__(self, data: dict, base_keys=None):
         self._mats = data["materials"]
         self.defaults = data.get("defaults", {})
+        self._base_keys = set(base_keys) if base_keys is not None else set(self._mats.keys())
 
     # --- lookups ---
     def names(self) -> list[str]:
@@ -61,15 +64,30 @@ class Palette:
     def to_dict(self) -> dict:
         return {"defaults": self.defaults, "materials": self._mats}
 
-    def save(self, path: str | Path) -> None:
-        Path(path).write_text(json.dumps(self.to_dict(), indent=2))
+    def user_materials(self) -> dict:
+        """Materials added on top of the tracked base palette."""
+        return {k: v for k, v in self._mats.items() if k not in self._base_keys}
+
+    def save(self, path: str | Path | None = None) -> None:
+        """Persist ONLY user-added materials, to the untracked user config by default,
+        so the tracked base palette (config/materials.json) is never modified."""
+        p = Path(path) if path else _USER_CONFIG
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"materials": self.user_materials()}, indent=2))
 
 
 def load_palette(path: str | Path | None = None) -> Palette:
-    """Load the palette from config/materials.json, falling back to a baked-in set."""
+    """Load the tracked base palette, then merge any user-added materials (untracked)."""
     p = Path(path) if path else _DEFAULT_CONFIG
     try:
         data = json.loads(p.read_text())
     except (FileNotFoundError, json.JSONDecodeError):
         data = _FALLBACK
-    return Palette(data)
+    base_keys = set(data["materials"].keys())
+    try:                                             # merge user additions (new names only)
+        user = json.loads(_USER_CONFIG.read_text())
+        for k, v in user.get("materials", {}).items():
+            data["materials"].setdefault(k, v)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return Palette(data, base_keys=base_keys)

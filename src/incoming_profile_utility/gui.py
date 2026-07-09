@@ -9,7 +9,7 @@ from pathlib import Path
 import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageFont
 
-from .materials import load_palette, _DEFAULT_CONFIG
+from .materials import load_palette
 from .io_csv import load_trace
 from . import process as proc
 
@@ -532,7 +532,7 @@ class ProfileStudio(ctk.CTk):
             nm=name_e.get().strip().lower().replace(" ","_")
             if nm:
                 self.palette.add(nm,chosen["rgb"],label=name_e.get().strip())
-                try: self.palette.save(_DEFAULT_CONFIG)
+                try: self.palette.save()
                 except OSError: pass
                 self._update_menus()
             dlg.destroy()

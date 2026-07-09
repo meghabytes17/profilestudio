@@ -1,33 +1,22 @@
-# ---- Python ----
+# user-added materials (written by the app; keep out of version control)
+config/user_materials.json
+
+# python / build
 __pycache__/
 *.py[cod]
 *.egg-info/
-.eggs/
 build/
 dist/
+.pytest_cache/
+
+# virtualenvs
 .venv/
 venv/
-env/
 
-# ---- Testing / tooling ----
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
+# generated outputs
+outputs/*.bmp
+outputs/*.png
 
-# ---- Editors / OS ----
-.vscode/
-.idea/
-*.swp
+# OS
 .DS_Store
 Thumbs.db
-
-# ---- Project: generated artifacts ----
-# Rendered profiles are build products, not source. Keep the folder, ignore its contents.
-outputs/*
-!outputs/.gitkeep
-*.bmp
-
-# Exception: golden/reference images used by tests are intentionally versioned.
-!tests/**/*.bmp
