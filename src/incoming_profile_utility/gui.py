@@ -20,9 +20,9 @@ ON="#FFFFFF"; SOFT="#AEB9C8"; MUT="#8B99AC"
 FIELDS = [
     ("pitch","Pitch (nm)","120","Width of one repeating unit cell = line + opening."),
     ("space","Space · opening (nm)","50","Width of the centered opening. line width = pitch − space."),
-    ("opening_depth","Opening depth (nm)","","How far down the opening is cut, measured from the TOP of the whole stack (not per-layer). Blank = cut all the way through every material."),
+    ("opening_depth","Opening depth (nm)","","How far down the opening is cut, measured from the top of the TOPMOST MATERIAL (row ① in the stack) — NOT from the top of the image. The top-vacuum headroom above the stack does not count. Blank = cut all the way through every material."),
     ("opening_bottom_radius","Opening bottom round (nm)","","Round the BOTTOM of the opening into a U. 0 = flat; ≈ half the Space = full semicircle."),
-    ("top_vacuum","Top vacuum (nm)","20","Empty space above the stack (room to deposit on top)."),
+    ("top_vacuum","Top vacuum (nm)","20","Empty headroom drawn ABOVE the topmost material (room to deposit on top). This sits above the stack and does not affect Opening depth."),
 ]
 OP_LABELS = ["Deposit · conformal","Deposit · planar","Fill","Etch · isotropic","Etch · anisotropic","Planarize"]
 OP_PRESETS = {"deposit":("Deposit · conformal","oxide",8),"fill":("Fill","tungsten",0),
@@ -54,7 +54,7 @@ def _nice_step(extent):
         if raw<=m*mag: return m*mag
     return 10*mag
 
-def compose_preview(bmp_path, nm_per_px, target_h=440):
+def compose_preview(bmp_path, nm_per_px, target_h=440, origin=(0.0,0.0)):
     img=Image.open(bmp_path).convert("RGB"); w,h=img.size
     disp=min(6.0, target_h/h); dw,dh=max(1,int(w*disp)),max(1,int(h*disp))
     prof=img.resize((dw,dh), Image.NEAREST)
@@ -62,11 +62,14 @@ def compose_preview(bmp_path, nm_per_px, target_h=440):
     canvas=Image.new("RGB",(ML+dw+MR, MT+dh+MB),(11,22,38)); canvas.paste(prof,(ML,MT))
     ov=Image.new("RGBA",canvas.size,(0,0,0,0)); d=ImageDraw.Draw(ov); font=ImageFont.load_default()
     ppn=disp/nm_per_px; wnm,hnm=w*nm_per_px,h*nm_per_px; sx,sy=_nice_step(wnm),_nice_step(hnm)
+    x0,y0=origin
     grid=(110,144,198,70); tick=(110,144,198,255)
-    for k in range(int(wnm//sx)+1):
-        xx=ML+k*sx*ppn; d.line([(xx,MT),(xx,MT+dh)],fill=grid); d.text((xx-5,MT+dh+5),f"{int(k*sx)}",fill=tick,font=font)
-    for k in range(int(hnm//sy)+1):
-        yy=MT+dh-k*sy*ppn; d.line([(ML,yy),(ML+dw,yy)],fill=grid); d.text((6,yy-4),f"{int(k*sy)}",fill=tick,font=font)
+    nx=math.ceil(x0/sx)*sx
+    while nx<=x0+wnm+1e-6:
+        xx=ML+(nx-x0)*ppn; d.line([(xx,MT),(xx,MT+dh)],fill=grid); d.text((xx-5,MT+dh+5),f"{int(round(nx))}",fill=tick,font=font); nx+=sx
+    ny=math.ceil(y0/sy)*sy
+    while ny<=y0+hnm+1e-6:
+        yy=MT+dh-(ny-y0)*ppn; d.line([(ML,yy),(ML+dw,yy)],fill=grid); d.text((6,yy-4),f"{int(round(ny))}",fill=tick,font=font); ny+=sy
     d.text((ML,MT+dh+16),"width nm  /  height nm ↑",fill=tick,font=font)
     return Image.alpha_composite(canvas.convert("RGBA"),ov).convert("RGB")
 
@@ -258,6 +261,7 @@ class ProfileStudio(ctk.CTk):
         self.palette=load_palette(); self.opening_trace=None
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
         self._undo=[]; self._redo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
+        self._zoom=1.0; self._cx=0.5; self._cy=0.5; self._pv=None; self._pan=None   # zoom/pan view state
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
@@ -377,14 +381,52 @@ class ProfileStudio(ctk.CTk):
         card=self._card(parent,"Preview"); card.grid(row=0,column=1,sticky="nsew")
         fr=ctk.CTkFrame(card,fg_color=NAVY_900,corner_radius=10); fr.pack(expand=True,fill="both",padx=18,pady=6)
         self.preview=ctk.CTkLabel(fr,text="",fg_color=NAVY_900); self.preview.pack(expand=True,fill="both",padx=10,pady=10)
+        for ev,cb in (("<ButtonPress-1>",self._pan_start),("<B1-Motion>",self._pan_move),
+                      ("<Double-Button-1>",lambda e:self._reset_zoom()),
+                      ("<MouseWheel>",self._wheel_zoom),("<Button-4>",self._wheel_zoom),("<Button-5>",self._wheel_zoom)):
+            self.preview.bind(ev,cb,add="+")
         self.legend=ctk.CTkFrame(card,fg_color="transparent"); self.legend.pack(fill="x",padx=18,pady=(0,4))
-        bar=ctk.CTkFrame(card,fg_color="transparent"); bar.pack(fill="x",padx=18,pady=(4,16)); bar.grid_columnconfigure(0,weight=1)
+        bar=ctk.CTkFrame(card,fg_color="transparent"); bar.pack(fill="x",padx=18,pady=(4,4)); bar.grid_columnconfigure(0,weight=1)
         sm=ctk.CTkFrame(bar,fg_color="transparent"); sm.grid(row=0,column=0,sticky="w")
         ctk.CTkLabel(sm,text="Smoothing",font=self.eb,text_color=SOFT).pack(side="left",padx=(0,6))
         ctk.CTkOptionMenu(sm,values=["Off","2×","4×","8×"],variable=self.smooth_level,command=lambda _v:self.render_preview(),
                           width=76,font=self.uf,fg_color=NAVY_900,button_color=BLUE,button_hover_color=BLUE_L,text_color=ON).pack(side="left")
         self.preview_note=ctk.CTkLabel(bar,text="preview updates as you edit",font=self.eb,text_color=MUT); self.preview_note.grid(row=0,column=1,padx=(0,10))
         ctk.CTkButton(bar,text="Save .bmp…",command=self.save_bmp,font=self.ub,width=120,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).grid(row=0,column=2)
+        # zoom bar (row 1): drag the preview to pan, scroll to zoom, double-click to reset
+        zb=ctk.CTkFrame(bar,fg_color="transparent"); zb.grid(row=1,column=0,columnspan=3,sticky="ew",pady=(6,2)); zb.grid_columnconfigure(1,weight=1)
+        ctk.CTkLabel(zb,text="Zoom",font=self.eb,text_color=SOFT).grid(row=0,column=0,padx=(0,8))
+        self.zoom_var=ctk.DoubleVar(value=1.0)
+        self.zoom_slider=ctk.CTkSlider(zb,from_=1.0,to=8.0,number_of_steps=70,variable=self.zoom_var,
+                                       command=self._on_zoom_slider,button_color=BLUE,button_hover_color=BLUE_L,progress_color=BLUE)
+        self.zoom_slider.grid(row=0,column=1,sticky="ew",padx=6)
+        ctk.CTkButton(zb,text="Reset",command=self._reset_zoom,font=self.uf,width=60,fg_color="transparent",border_width=1,
+                      border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700).grid(row=0,column=2,padx=(6,0))
+        Tooltip(self.zoom_slider,"Zoom the preview. You can also scroll the wheel over the preview to zoom, drag to pan, and double-click to reset.")
+
+    def _on_zoom_slider(self,_v=None):
+        self._zoom=max(1.0,float(self.zoom_var.get()))
+        if self._zoom<=1.0: self._cx=self._cy=0.5
+        self.render_preview()
+    def _reset_zoom(self):
+        self._zoom=1.0; self._cx=self._cy=0.5
+        if hasattr(self,"zoom_var"): self.zoom_var.set(1.0)
+        self.render_preview()
+    def _wheel_zoom(self,e):
+        step=1.2 if getattr(e,"delta",0)>0 or getattr(e,"num",0)==4 else (1/1.2)
+        self._zoom=min(8.0,max(1.0,self._zoom*step))
+        if self._zoom<=1.0: self._cx=self._cy=0.5
+        if hasattr(self,"zoom_var"): self.zoom_var.set(self._zoom)
+        self.render_preview()
+    def _pan_start(self,e):
+        self._pan=(e.x,e.y,self._cx,self._cy)
+    def _pan_move(self,e):
+        if not self._pan or self._zoom<=1.0 or not self._pv: return
+        x0,y0,cx0,cy0=self._pan; pw,ph,z=self._pv
+        # composed px -> cell fraction (data area ~ full composed size); drag content with cursor
+        self._cx=cx0-(e.x-x0)/max(1,pw)/z
+        self._cy=cy0+(e.y-y0)/max(1,ph)/z
+        self.render_preview()
 
     def _footer(self):
         ctk.CTkLabel(self,text="Symmetric · 24-bit BMP · 2D-polygon process model",font=self.eb,text_color=MUT).grid(row=3,column=0,sticky="w",padx=22,pady=(0,10))
@@ -646,17 +688,22 @@ class ProfileStudio(ctk.CTk):
         try: return float(v)
         except ValueError: return None
 
-    def _resolve_npp(self, st, cap=1600):
+    def _resolve_npp(self, st, cap=1600, target_px=1000):
         minx,miny,maxx,maxy=st.cell.bounds
         W=max(maxx-minx,1.0); H=max(maxy-miny,1.0)
         manual=self._scale()
-        npp = manual if (manual and manual>0) else H/1000.0     # manual value, else ~1000 px tall
+        npp = manual if (manual and manual>0) else H/target_px  # manual value, else ~target_px px tall
         npp = max(npp, W/cap, H/cap, 0.005)                     # clamp so neither side exceeds `cap` px
         return npp
 
     def _render_to(self,out_path,for_save=False):
         base=proc.build_base(self._params()); st=proc.evaluate(base,self.stack.to_ops()); self._last_state=st
-        npp=self._resolve_npp(st, cap=12000 if for_save else 1600); self._last_npp=npp
+        z=max(1.0, getattr(self,"_zoom",1.0))
+        if for_save:
+            npp=self._resolve_npp(st, cap=12000)
+        else:
+            npp=self._resolve_npp(st, cap=min(6000,int(1600*z)), target_px=min(4000,int(1000*z)))
+        self._last_npp=npp
         ss={"Off":1,"2×":2,"4×":4,"8×":8}.get(self.smooth_level.get(),1)
         if ss==1:
             proc.render_regions(st,self.palette,out_path,npp)     # hard pixels, no AA
@@ -674,6 +721,8 @@ class ProfileStudio(ctk.CTk):
 
     def _reset(self, capture=True):
         if capture: self._capture()
+        self._zoom=1.0; self._cx=self._cy=0.5
+        if hasattr(self,"zoom_var"): self.zoom_var.set(1.0)
         self.stack.clear()
         for r in list(self.matlayer_rows): r.frame.destroy()
         self.matlayer_rows=[]; self._relayout_matstack()
@@ -737,11 +786,22 @@ class ProfileStudio(ctk.CTk):
         self._update_csv_field_state()
         try:
             tmp=Path(tempfile.gettempdir())/"_ipu_preview.bmp"; self._render_to(tmp)
-            disp=compose_preview(tmp,self._last_npp,target_h=440)
+            src=tmp; origin=(0.0,0.0); z=self._zoom
+            if z>1.0:
+                im=Image.open(tmp); W,H=im.size; half=0.5/z
+                cx=min(max(self._cx,half),1-half); cy=min(max(self._cy,half),1-half); self._cx,self._cy=cx,cy
+                fx0,fx1=cx-half,cx+half; fy0,fy1=cy-half,cy+half
+                px0=int(fx0*W); px1=max(px0+1,int(round(fx1*W)))
+                py0=int((1-fy1)*H); py1=max(py0+1,int(round((1-fy0)*H)))   # image y is top-origin
+                crop=Path(tempfile.gettempdir())/"_ipu_crop.bmp"; im.crop((px0,py0,px1,py1)).save(crop)
+                src=crop; origin=(fx0*W*self._last_npp, fy0*H*self._last_npp)
+            disp=compose_preview(src,self._last_npp,target_h=440,origin=origin)
             self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
+            self._pv=(disp.size[0],disp.size[1],z)                        # for pan mapping
             self._update_legend()
             mode="" if self._scale() else " (auto)"
-            self.preview_note.configure(text=f"{self._last_npp:.3g} nm/px{mode} · updates live")
+            zoom_txt="" if z<=1.0 else f" · {z:.1f}× zoom"
+            self.preview_note.configure(text=f"{self._last_npp:.3g} nm/px{mode} · updates live{zoom_txt}")
         except Exception as exc:
             self.preview.configure(image=None,text=f"⚠ {exc}",text_color=MUT)
 
