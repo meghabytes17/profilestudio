@@ -476,7 +476,7 @@ class ProfileStudio(ctk.CTk):
                     except ValueError: return d
                 if k=="round": out.append({"kind":"round","r":fv(rec["p1"],0)})
                 elif k=="chamfer": out.append({"kind":"chamfer","s":fv(rec["p1"],0)})
-                elif k=="taper": out.append({"kind":"taper","angle":fv(rec["p1"],10)})
+                elif k=="taper": out.append({"kind":"taper","angle":fv(rec["p1"],80)})
                 else: out.append({"kind":"facet","angle":fv(rec["p1"],45),"depth":fv(rec["p2"],0)})
             return out
         def commit():
@@ -490,7 +490,8 @@ class ProfileStudio(ctk.CTk):
             ic=ctk.CTkLabel(fr,text="ⓘ",font=self.uf,text_color=BLUE_L,cursor="hand2"); ic.pack(side="left",padx=(0,6))
             Tooltip(ic,"round: fillet the top corner (radius).\nchamfer: straight 45° cut of the top corner (size).\n"
                        "facet: short angled cut of the top corner (angle from horizontal + depth).\n"
-                       "taper: slope the WHOLE layer wall (angle from vertical; opening wider at the top).")
+                       "taper: slope the WHOLE layer wall. angle = sidewall angle from the horizontal base "
+                       "(90 = vertical, smaller = more sloped, opening wider at the top).")
             l1=ctk.CTkLabel(fr,text="",font=self.eb,text_color=MUT,width=44); l1.pack(side="left")
             p1=ctk.CTkEntry(fr,width=52,font=self.mono,fg_color=NAVY_800,border_color=NAVY_700,text_color=ON); p1.pack(side="left",padx=2)
             l2=ctk.CTkLabel(fr,text="",font=self.eb,text_color=MUT,width=44)
@@ -506,7 +507,7 @@ class ProfileStudio(ctk.CTk):
                 else:
                     l1.configure(text={"round":"radius","chamfer":"size","taper":"angle°"}[k])
                     p2.pack_forget(); l2.pack_forget()
-                    if k=="taper" and not p1.get().strip(): p1.insert(0,"10")
+                    if k=="taper" and not p1.get().strip(): p1.insert(0,"80")
             kind.configure(command=lambda _v:(sync(),commit()))
             p1.bind("<KeyRelease>",lambda e:commit()); p2.bind("<KeyRelease>",lambda e:commit())
             def rm(): fr.destroy(); trows.remove(rec); commit()
@@ -514,7 +515,7 @@ class ProfileStudio(ctk.CTk):
                           text_color=SOFT,hover_color=NAVY_700,command=rm).pack(side="right",padx=6)
             if t.get("kind")=="facet": p1.insert(0,str(t.get("angle",45))); p2.insert(0,str(t.get("depth",10)))
             elif t.get("kind")=="chamfer": p1.insert(0,str(t.get("s",0)))
-            elif t.get("kind")=="taper": p1.insert(0,str(t.get("angle",10)))
+            elif t.get("kind")=="taper": p1.insert(0,str(t.get("angle",80)))
             else: p1.insert(0,str(t.get("r",0)))
             trows.append(rec); sync()
         for t in row.shape: add_tr(t)

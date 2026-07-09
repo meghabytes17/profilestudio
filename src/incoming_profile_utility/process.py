@@ -118,8 +118,9 @@ def _corner_cut(shape_list, cx, top, bottom=None):
     """Union of corner/wall removal shapes for the RIGHT side at opening edge cx.
 
     Treatments (combinable): round(r), chamfer(s), facet(angle,depth) shape the top
-    corner; taper(angle) slopes the ENTIRE layer wall (angle from vertical; opening
-    wider at the top). `bottom` is the layer's bottom y (needed for taper).
+    corner; taper(angle) slopes the ENTIRE layer wall — angle is the sidewall angle from
+    the HORIZONTAL base (90 = vertical, smaller = more sloped, opening wider at the top).
+    `bottom` is the layer's bottom y (needed for taper).
     """
     cuts = []
     for t in shape_list or []:
@@ -137,9 +138,9 @@ def _corner_cut(shape_list, cx, top, bottom=None):
             if r > 0:
                 cuts.append(box(cx, top - r, cx + r, top).difference(Point(cx + r, top - r).buffer(r, quad_segs=32)))
         elif k == "taper":
-            ang = math.radians(float(t.get("angle", 10) or 0))
-            if ang > 0 and bottom is not None and top > bottom:
-                run = (top - bottom) * math.tan(ang)
+            ang = float(t.get("angle", 80) or 0)     # sidewall angle from HORIZONTAL base; 90 = vertical
+            if bottom is not None and top > bottom and 0 < ang < 90:
+                run = (top - bottom) / math.tan(math.radians(ang))
                 cuts.append(Polygon([(cx, top), (cx + run, top), (cx, bottom)]))
     if not cuts:
         return None
