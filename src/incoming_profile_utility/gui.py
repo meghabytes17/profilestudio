@@ -297,6 +297,7 @@ class ProfileStudio(ctk.CTk):
             btn.pack(side="left",padx=1); Tooltip(btn,tip)
         def sep():
             ctk.CTkFrame(inner,width=1,height=20,fg_color=NAVY_700).pack(side="left",padx=6)
+        tbtn("New",self._new_project,"Start a new, blank project")
         tbtn("Open",self._open_project,"Open a saved project (.json)")
         tbtn("Save",self._save_project,"Save the whole project — materials, base feature, process stack — to a .json file",accent=True)
         sep()
@@ -334,11 +335,11 @@ class ProfileStudio(ctk.CTk):
             e=ctk.CTkEntry(bs,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120)
             e.insert(0,default); e.bind("<KeyRelease>",self._schedule_render); self._row(bs,i,label,info,e); self.entries[k]=e
         ocsv=ctk.CTkFrame(bs,fg_color="transparent"); ocsv.grid(row=len(FIELDS)+1,column=0,columnspan=3,sticky="ew",padx=6,pady=(6,0))
-        ctk.CTkButton(ocsv,text="Load CSV opening…",command=self._load_csv,font=self.uf,fg_color=NAVY_900,border_width=1,
+        ctk.CTkButton(ocsv,text="Load CSV…",command=self._load_csv,font=self.uf,fg_color=NAVY_900,border_width=1,
                       border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
         ctk.CTkButton(ocsv,text="Clear",command=self._clear_csv,font=self.uf,fg_color="transparent",border_width=1,
                       border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700,width=70).pack(side="left",padx=2)
-        self.csv_label=ctk.CTkLabel(bs,text="Opening: rectangular (from Space). Load a CSV to use a trace shape instead.",
+        self.csv_label=ctk.CTkLabel(bs,text="Opening: rectangular (from Space). Load a CSV to use a trace profile instead.",
                                     font=self.eb,text_color=MUT,wraplength=520,justify="left")
         self.csv_label.grid(row=len(FIELDS)+2,column=0,columnspan=3,sticky="w",padx=8,pady=(2,2))
         self.csv_ref_entry=ctk.CTkEntry(bs,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON,width=120,placeholder_text="top")
@@ -459,10 +460,15 @@ class ProfileStudio(ctk.CTk):
         if not path: return
         try:
             with open(path) as f: snap=json.load(f)
-            self._capture(); self._load_state(snap)
+            self._load_state(snap)
+            self._undo.clear(); self._redo.clear()      # opened state is the baseline; nothing to undo into
             self.title(f"Incoming Profile Utility — {Path(path).name}")
         except Exception as exc:
             self.title(f"Incoming Profile Utility — ⚠ open failed: {exc}")
+    def _new_project(self):
+        self._reset(capture=False)                       # blank canvas
+        self._undo.clear(); self._redo.clear()           # fresh project: no history
+        self.title("Incoming Profile Utility")
     def _load_ops(self, oplist, ops):
         oplist.clear()
         for op in ops:
@@ -489,8 +495,8 @@ class ProfileStudio(ctk.CTk):
             self.csv_ref_entry.delete(0,"end"); self.csv_ref_entry.insert(0,snap.get("csv_ref",""))
             self.opening_trace=snap.get("trace")
             self.csv_label.configure(
-                text=(f"✓ CSV opening loaded ({len(self.opening_trace)} pts)." if self.opening_trace
-                      else "Opening: rectangular (from Space). Load a CSV to use a trace shape instead."),
+                text=(f"✓ CSV loaded ({len(self.opening_trace)} pts)." if self.opening_trace
+                      else "Opening: rectangular (from Space). Load a CSV to use a trace profile instead."),
                 text_color=(GREEN if self.opening_trace else MUT))
         finally:
             self._loading=False
@@ -599,13 +605,13 @@ class ProfileStudio(ctk.CTk):
         hspan=float(df["height"].max()-df["height"].min())
         if not self.matlayer_rows and hspan>0:      # give the opening something to cut, so it's visible
             self.matlayer_rows.append(MaterialLayerRow(self,"silicon",round(hspan,1))); self._relayout_matstack()
-        self.csv_label.configure(text=f"✓ Opening from {Path(path).name} ({len(df)} pts) — aligned to the TOP of the stack, cut downward. Edit material layers to embed it; Space is ignored.", text_color=GREEN)
+        self.csv_label.configure(text=f"✓ CSV loaded from {Path(path).name} ({len(df)} pts) — aligned to the TOP of the stack, cut downward. Set 'CSV height=0 at' to reposition; Space is ignored.", text_color=GREEN)
         self.render_preview()
 
     def _clear_csv(self):
         if self.opening_trace is not None:
             self._capture(); self.opening_trace=None
-            self.csv_label.configure(text="Opening: rectangular (from Space). Load a CSV to use a trace shape instead.", text_color=MUT)
+            self.csv_label.configure(text="Opening: rectangular (from Space). Load a CSV to use a trace profile instead.", text_color=MUT)
             self.render_preview()
 
     def _params(self):
@@ -660,14 +666,14 @@ class ProfileStudio(ctk.CTk):
             img=cv2.resize(cv2.imread(str(hi)),(W,H),interpolation=cv2.INTER_AREA)
             cv2.imwrite(str(out_path),img)
 
-    def _reset(self):
-        self._capture()
+    def _reset(self, capture=True):
+        if capture: self._capture()
         self.stack.clear()
         for r in list(self.matlayer_rows): r.frame.destroy()
         self.matlayer_rows=[]; self._relayout_matstack()
         self.opening_trace=None
         self.csv_ref_entry.delete(0,"end")
-        self.csv_label.configure(text="Opening: rectangular (from Space). Load a CSV to use a trace shape instead.", text_color=MUT)
+        self.csv_label.configure(text="Opening: rectangular (from Space). Load a CSV to use a trace profile instead.", text_color=MUT)
         for k,label,default,info in FIELDS:
             self.entries[k].delete(0,"end"); self.entries[k].insert(0,default)
         self.scale_entry.delete(0,"end")  # blank = auto
