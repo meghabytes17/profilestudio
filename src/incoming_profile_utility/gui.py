@@ -56,29 +56,40 @@ def _nice_step(extent):
         if raw<=m*mag: return m*mag
     return 10*mag
 
-def compose_preview(bmp_path, nm_per_px, target_h=440, origin=(0.0,0.0), max_w=None, max_h=None, return_disp=False):
+def compose_preview(bmp_path, nm_per_px, box_w=760, box_h=460, origin=(0.0,0.0), return_scale=False):
+    """Render the profile into a FIXED-size plot box (box_w x box_h). The profile is scaled
+    to fit inside the data area preserving aspect (letterboxed, centered) so the grid panel
+    keeps a constant size as the profile changes — only the axis labels update. Returns the
+    composed image and, optionally, the fit scale (composed px per profile px)."""
     img=Image.open(bmp_path).convert("RGB"); w,h=img.size
     ML,MB,MT,MR=48,30,12,14
-    disp=target_h/h
-    if max_h is not None: disp=min(disp,(max_h-(MT+MB))/h)     # fit inside the available box
-    if max_w is not None: disp=min(disp,(max_w-(ML+MR))/w)
-    disp=max(0.02,min(6.0,disp))
-    dw,dh=max(1,int(w*disp)),max(1,int(h*disp))
-    prof=img.resize((dw,dh), Image.NEAREST)
-    canvas=Image.new("RGB",(ML+dw+MR, MT+dh+MB),(11,22,38)); canvas.paste(prof,(ML,MT))
+    box_w=max(ML+MR+80,int(box_w)); box_h=max(MT+MB+80,int(box_h))
+    data_w=box_w-ML-MR; data_h=box_h-MT-MB
+    fit=min(data_w/w, data_h/h, 6.0)                  # letterbox, preserve aspect, don't over-zoom
+    pw2,ph2=max(1,int(w*fit)),max(1,int(h*fit))
+    prof=img.resize((pw2,ph2), Image.NEAREST)
+    px=ML+(data_w-pw2)//2; py=MT+(data_h-ph2)//2      # centre the profile in the fixed data area
+    canvas=Image.new("RGB",(box_w,box_h),(11,22,38)); canvas.paste(prof,(px,py))
     ov=Image.new("RGBA",canvas.size,(0,0,0,0)); d=ImageDraw.Draw(ov); font=ImageFont.load_default()
-    ppn=disp/nm_per_px; wnm,hnm=w*nm_per_px,h*nm_per_px; sx,sy=_nice_step(wnm),_nice_step(hnm)
+    ppn=fit/nm_per_px; wnm,hnm=w*nm_per_px,h*nm_per_px; sx,sy=_nice_step(wnm),_nice_step(hnm)
     x0,y0=origin
-    grid=(110,144,198,70); tick=(110,144,198,255)
+    grid=(110,144,198,70); tick=(110,144,198,255); frame=(70,96,140,255)
+    d.rectangle([ML,MT,ML+data_w,MT+data_h],outline=frame,width=1)   # stable plot frame
     nx=math.ceil(x0/sx)*sx
     while nx<=x0+wnm+1e-6:
-        xx=ML+(nx-x0)*ppn; d.line([(xx,MT),(xx,MT+dh)],fill=grid); d.text((xx-5,MT+dh+5),f"{int(round(nx))}",fill=tick,font=font); nx+=sx
+        xx=px+(nx-x0)*ppn
+        if ML<=xx<=ML+data_w:
+            d.line([(xx,MT),(xx,MT+data_h)],fill=grid); d.text((xx-5,MT+data_h+5),f"{int(round(nx))}",fill=tick,font=font)
+        nx+=sx
     ny=math.ceil(y0/sy)*sy
     while ny<=y0+hnm+1e-6:
-        yy=MT+dh-(ny-y0)*ppn; d.line([(ML,yy),(ML+dw,yy)],fill=grid); d.text((6,yy-4),f"{int(round(ny))}",fill=tick,font=font); ny+=sy
-    d.text((ML,MT+dh+16),"width nm  /  height nm ↑",fill=tick,font=font)
+        yy=py+ph2-(ny-y0)*ppn
+        if MT<=yy<=MT+data_h:
+            d.line([(ML,yy),(ML+data_w,yy)],fill=grid); d.text((6,yy-4),f"{int(round(ny))}",fill=tick,font=font)
+        ny+=sy
+    d.text((ML,MT+data_h+16),"width nm  /  height nm ↑",fill=tick,font=font)
     out=Image.alpha_composite(canvas.convert("RGBA"),ov).convert("RGB")
-    return (out, disp) if return_disp else out
+    return (out, fit) if return_scale else out
 
 
 class Tooltip:
@@ -861,11 +872,10 @@ class ProfileStudio(ctk.CTk):
             _tgt=getattr(self,"_pv_target",self.preview)
             try: _s=ctk.ScalingTracker.get_widget_scaling(self)
             except Exception: _s=1.0
-            avail_w=_tgt.winfo_width()/_s; avail_h=_tgt.winfo_height()/_s
-            if avail_w<80 or avail_h<80: avail_w,avail_h=760,460     # before first layout
-            disp,disp_scale=compose_preview(src,self._last_npp,target_h=440,origin=origin,
-                                            max_w=avail_w-6,max_h=avail_h-6,return_disp=True)
-            self._nmpp_disp=self._last_npp/disp_scale          # real nm per on-screen (composed) pixel
+            box_w=_tgt.winfo_width()/_s; box_h=_tgt.winfo_height()/_s
+            if box_w<120 or box_h<120: box_w,box_h=760,460          # before first layout
+            disp,fit=compose_preview(src,self._last_npp,box_w=box_w,box_h=box_h,origin=origin,return_scale=True)
+            self._nmpp_disp=self._last_npp/fit                 # real nm per on-screen (composed) pixel
             self._base_disp=disp                               # clean image (for the measure overlay)
             self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
             self._pv=(disp.size[0],disp.size[1],z)                        # for pan / measure mapping
