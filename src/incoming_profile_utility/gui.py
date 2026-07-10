@@ -407,10 +407,11 @@ class ProfileStudio(ctk.CTk):
         bottom=ctk.CTkFrame(card,fg_color="transparent"); bottom.pack(side="bottom",fill="x")   # controls stay visible
         fr=ctk.CTkFrame(card,fg_color=NAVY_900,corner_radius=10); fr.pack(side="top",expand=True,fill="both",padx=18,pady=6)
         self.preview=ctk.CTkLabel(fr,text="",fg_color=NAVY_900); self.preview.pack(expand=True,fill="both",padx=10,pady=10)
+        self._pv_target=getattr(self.preview,"_label",self.preview)   # inner widget that shows the image
         for ev,cb in (("<ButtonPress-1>",self._pan_start),("<B1-Motion>",self._pan_move),
                       ("<Double-Button-1>",lambda e:self._reset_zoom()),
                       ("<MouseWheel>",self._wheel_zoom),("<Button-4>",self._wheel_zoom),("<Button-5>",self._wheel_zoom)):
-            self.preview.bind(ev,cb,add="+")
+            self._pv_target.bind(ev,cb,add="+")
         self.legend=ctk.CTkFrame(bottom,fg_color="transparent"); self.legend.pack(fill="x",padx=18,pady=(0,4))
         bar=ctk.CTkFrame(bottom,fg_color="transparent"); bar.pack(fill="x",padx=18,pady=(4,8)); bar.grid_columnconfigure(0,weight=1)
         sm=ctk.CTkFrame(bar,fg_color="transparent"); sm.grid(row=0,column=0,sticky="w")
@@ -477,7 +478,8 @@ class ProfileStudio(ctk.CTk):
         pw,ph,_=self._pv
         try: s=ctk.ScalingTracker.get_widget_scaling(self)
         except Exception: s=1.0
-        lw=self.preview.winfo_width(); lh=self.preview.winfo_height()
+        tgt=getattr(self,"_pv_target",self.preview)
+        lw=tgt.winfo_width(); lh=tgt.winfo_height()            # inner label that holds the image
         dispw,disph=pw*s,ph*s                                  # CTkImage renders at size*scaling
         ox=max(0,(lw-dispw)/2); oy=max(0,(lh-disph)/2)
         x=(e.x-ox)/s; y=(e.y-oy)/s                             # -> composed (unscaled) coords
@@ -856,9 +858,10 @@ class ProfileStudio(ctk.CTk):
                 crop=Path(tempfile.gettempdir())/"_ipu_crop.bmp"; im.crop((px0,py0,px1,py1)).save(crop)
                 src=crop; origin=(fx0*W*self._last_npp, fy0*H*self._last_npp)
             self.preview.update_idletasks()
+            _tgt=getattr(self,"_pv_target",self.preview)
             try: _s=ctk.ScalingTracker.get_widget_scaling(self)
             except Exception: _s=1.0
-            avail_w=self.preview.winfo_width()/_s; avail_h=self.preview.winfo_height()/_s
+            avail_w=_tgt.winfo_width()/_s; avail_h=_tgt.winfo_height()/_s
             if avail_w<80 or avail_h<80: avail_w,avail_h=760,460     # before first layout
             disp,disp_scale=compose_preview(src,self._last_npp,target_h=440,origin=origin,
                                             max_w=avail_w-6,max_h=avail_h-6,return_disp=True)
