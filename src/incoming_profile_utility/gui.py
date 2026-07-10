@@ -705,19 +705,11 @@ class ProfileStudio(ctk.CTk):
             npp=self._resolve_npp(st, cap=min(6000,int(1600*z)), target_px=min(4000,int(1000*z)))
         self._last_npp=npp
         ss={"Off":1,"2×":2,"4×":4,"8×":8}.get(self.smooth_level.get(),1)
-        if ss==1:
-            proc.render_regions(st,self.palette,out_path,npp)     # hard pixels, no AA
-        else:
-            import cv2
-            minx,miny,maxx,maxy=st.cell.bounds
-            Wnm=maxx-minx; Hnm=maxy-miny
-            HI_CAP=4000                                           # keep the supersample bounded (no freeze)
-            hi_npp=max(npp/ss, Wnm/HI_CAP, Hnm/HI_CAP)
-            hi=Path(tempfile.gettempdir())/"_ipu_hi.bmp"
-            proc.render_regions(st,self.palette,hi,hi_npp)        # supersample (capped)
-            W=max(1,round(Wnm/npp)); H=max(1,round(Hnm/npp))
-            img=cv2.resize(cv2.imread(str(hi)),(W,H),interpolation=cv2.INTER_AREA)
-            cv2.imwrite(str(out_path),img)
+        # bound the internal supersample so a big profile can't freeze
+        minx,miny,maxx,maxy=st.cell.bounds; maxdim=max(maxx-minx,maxy-miny)
+        HI_CAP=8000 if for_save else 4000
+        while ss>1 and maxdim*ss/npp>HI_CAP: ss//=2
+        proc.render_regions(st,self.palette,out_path,npp,oversample=ss)  # majority-vote AA, exact colors
 
     def _reset(self, capture=True):
         if capture: self._capture()

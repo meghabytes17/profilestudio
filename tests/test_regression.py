@@ -275,3 +275,39 @@ def test_round_plus_taper_keeps_mask_connected():
     hm = [g for m, g in st.regions if m == "hardmask"][0]
     parts = len(hm.geoms) if hm.geom_type == "MultiPolygon" else 1
     assert parts <= 2 and hm.is_valid          # left + right bars only, no slivers
+
+
+def test_smoothing_introduces_no_blended_colors(tmp_path):
+    """Oversampled (smoothed) renders must contain ONLY exact palette colors — no
+    anti-alias blends — and never more colors than materials + background."""
+    import cv2, numpy as np
+    from incoming_profile_utility.process import render_regions
+    from incoming_profile_utility.materials import load_palette
+    pal = load_palette()
+    base = build_base(dict(material_layers=[dict(material="oxide", thickness=200,
+                          shape=[dict(kind="round", r=50)])], pitch=200, space=90,
+                          top_vacuum=40, opening_depth=200, opening_bottom_radius=40))
+    st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=30),
+                         dict(op="fill", material="tungsten")])
+    allowed = {tuple(pal.bgr(m)) for m, _ in st.regions} | {(0, 0, 0)}
+    for ss in (1, 2, 4, 8):
+        out = tmp_path / f"s{ss}.bmp"
+        render_regions(st, pal, out, 0.6, oversample=ss)
+        cols = {tuple(px) for px in cv2.imread(str(out)).reshape(-1, 3).tolist()}
+        assert cols <= allowed, f"blended colors at {ss}x: {cols - allowed}"
+
+
+def test_pixels_never_overlap_two_materials(tmp_path):
+    """Regions are disjoint and each pixel gets exactly one material color."""
+    import cv2
+    from incoming_profile_utility.process import render_regions
+    from incoming_profile_utility.materials import load_palette
+    pal = load_palette()
+    base = build_base(dict(material_layers=[dict(material="hardmask", thickness=120),
+                                            dict(material="silicon", thickness=180)],
+                           pitch=200, space=70, top_vacuum=20, opening_depth=120))
+    st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=25)])
+    render_regions(st, pal, tmp_path / "o.bmp", 0.5)
+    cols = {tuple(px) for px in cv2.imread(str(tmp_path / "o.bmp")).reshape(-1, 3).tolist()}
+    allowed = {tuple(pal.bgr(m)) for m, _ in st.regions} | {(0, 0, 0)}
+    assert cols <= allowed

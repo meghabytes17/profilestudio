@@ -410,21 +410,55 @@ def _px(ring, cx, total_h, nm_per_px):
                       for x, y in zip(xs, ys)]], dtype=np.int32)
 
 
-def render_regions(state: State, palette, out_path, nm_per_px: float = 0.4):
+def _downsample_mode(label, ss):
+    """Downsample an integer label image by majority vote (no blending).
+    Ties prefer a material over background so thin layers aren't eaten."""
+    H, W = label.shape
+    Ht, Wt = H // ss, W // ss
+    if Ht == 0 or Wt == 0:
+        return label
+    blocks = (label[:Ht * ss, :Wt * ss]
+              .reshape(Ht, ss, Wt, ss).transpose(0, 2, 1, 3).reshape(Ht, Wt, ss * ss))
+    shifted = blocks + 1                      # background -1 -> 0
+    maxv = int(shifted.max())
+    best = np.zeros((Ht, Wt), np.int32)
+    out = np.zeros((Ht, Wt), np.int32)
+    order = list(range(1, maxv + 1)) + [0]    # materials first, background last (loses ties)
+    for v in order:
+        cnt = (shifted == v).sum(axis=2).astype(np.int32)
+        take = cnt > best
+        out[take] = v; best[take] = cnt[take]
+    return out - 1
+
+
+def render_regions(state: State, palette, out_path, nm_per_px: float = 0.4, oversample: int = 1):
+    """Rasterize the profile. Every output pixel is assigned to exactly ONE material
+    (or background), so materials never overlap and — with oversample>1 — edges are
+    smoothed by majority vote WITHOUT introducing any blended/intermediate colors.
+    The number of distinct colors equals the number of materials drawn (+ black)."""
     minx, miny, maxx, maxy = state.cell.bounds
     pitch = maxx - minx
     total_h = maxy - miny
-    W = int(math.ceil(pitch / nm_per_px)); H = int(math.ceil(total_h / nm_per_px))
+    ss = max(1, int(oversample))
+    npp = nm_per_px / ss
+    W = int(math.ceil(pitch / npp)); H = int(math.ceil(total_h / npp))
     cx = pitch / 2
-    img = np.zeros((H, W, 3))
-    for material, geom in state.regions:
-        color = palette.bgr(material)
+    label = np.full((H, W), -1, np.int32)     # -1 = background / vacuum
+    colors = []
+    for idx, (material, geom) in enumerate(state.regions):
+        colors.append(palette.bgr(material))
         m = np.zeros((H, W), np.uint8)
         for poly in _polys(geom):
-            cv2.fillPoly(m, _px(poly.exterior, cx, total_h, nm_per_px), 255)
+            cv2.fillPoly(m, _px(poly.exterior, cx, total_h, npp), 255)
             for ring in poly.interiors:
-                cv2.fillPoly(m, _px(ring, cx, total_h, nm_per_px), 0)  # holes reveal below
-        img[m == 255] = color
+                cv2.fillPoly(m, _px(ring, cx, total_h, npp), 0)   # holes reveal below
+        label[m == 255] = idx                 # later material wins -> one label per pixel
+    if ss > 1:
+        label = _downsample_mode(label, ss)
+        H, W = label.shape
+    img = np.zeros((H, W, 3), np.uint8)
+    for idx, color in enumerate(colors):
+        img[label == idx] = color             # exact palette colors only
     cv2.imwrite(str(out_path), img)
     return (W, H)
 
