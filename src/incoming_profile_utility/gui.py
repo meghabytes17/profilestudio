@@ -278,7 +278,7 @@ class ProfileStudio(ctk.CTk):
     def __init__(self):
         super().__init__()
         ctk.set_appearance_mode("dark"); self.configure(fg_color=NAVY)
-        self.title("Incoming Profile Utility"); self.geometry("1180x820")
+        self.title("Incoming Profile Utility"); self.geometry("1360x900")
         self.palette=load_palette(); self.opening_trace=None
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
         self._undo=[]; self._redo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
@@ -342,9 +342,9 @@ class ProfileStudio(ctk.CTk):
             try: wsf=ctk.ScalingTracker.get_window_scaling(self)
             except Exception: wsf=1.0
             max_w=int(sw/wsf)-40; max_h=int(sh/wsf)-90
-            w=min(1180,max_w); h=min(820,max_h)
+            w=min(1360,max_w); h=min(900,max_h)
             self.geometry(f"{w}x{h}")
-            self.minsize(min(880,w), min(540,h))
+            self.minsize(min(900,w), min(560,h))
         except Exception:
             pass
 
@@ -423,6 +423,8 @@ class ProfileStudio(ctk.CTk):
                       ("<Double-Button-1>",lambda e:self._reset_zoom()),
                       ("<MouseWheel>",self._wheel_zoom),("<Button-4>",self._wheel_zoom),("<Button-5>",self._wheel_zoom)):
             self._pv_target.bind(ev,cb,add="+")
+        for key,(dx,dy) in {"<Up>":(0,1),"<Down>":(0,-1),"<Left>":(-1,0),"<Right>":(1,0)}.items():
+            self.bind(key, lambda e,dx=dx,dy=dy:self._nudge_pan(dx,dy), add="+")
         self.legend=ctk.CTkFrame(bottom,fg_color="transparent"); self.legend.pack(fill="x",padx=18,pady=(0,4))
         bar=ctk.CTkFrame(bottom,fg_color="transparent"); bar.pack(fill="x",padx=18,pady=(4,8)); bar.grid_columnconfigure(0,weight=1)
         sm=ctk.CTkFrame(bar,fg_color="transparent"); sm.grid(row=0,column=0,sticky="w")
@@ -469,10 +471,19 @@ class ProfileStudio(ctk.CTk):
     def _pan_move(self,e):
         if getattr(self,"_measure",False): return self._meas_move_cb(e)
         if not self._pan or self._zoom<=1.0 or not self._pv: return
-        x0,y0,cx0,cy0=self._pan; pw,ph,z=self._pv
-        # composed px -> cell fraction (data area ~ full composed size); drag content with cursor
-        self._cx=cx0-(e.x-x0)/max(1,pw)/z
-        self._cy=cy0+(e.y-y0)/max(1,ph)/z
+        x0,y0,cx0,cy0=self._pan; z=self._pv[2]
+        pw2,ph2=getattr(self,"_prof_wh",(self._pv[0],self._pv[1]))   # profile's on-screen extent
+        # drag content with the cursor: one full profile-width of drag == one view (1/z of image)
+        self._cx=cx0-(e.x-x0)/max(1,pw2)/z
+        self._cy=cy0+(e.y-y0)/max(1,ph2)/z
+        self.render_preview()
+    def _nudge_pan(self,dx,dy):
+        """Arrow-key panning when zoomed (ignored while typing in a field)."""
+        if self._zoom<=1.0: return
+        import tkinter as _tk
+        f=self.focus_get()
+        if isinstance(f,(_tk.Entry,_tk.Text)): return          # don't hijack text editing
+        self._cx+=dx*0.12/self._zoom; self._cy+=dy*0.12/self._zoom
         self.render_preview()
 
     # ---- measure tool: drag a line, read its length in nm ----
@@ -876,12 +887,14 @@ class ProfileStudio(ctk.CTk):
             if box_w<120 or box_h<120: box_w,box_h=760,460          # before first layout
             disp,fit=compose_preview(src,self._last_npp,box_w=box_w,box_h=box_h,origin=origin,return_scale=True)
             self._nmpp_disp=self._last_npp/fit                 # real nm per on-screen (composed) pixel
+            srcW,srcH=Image.open(src).size
+            self._prof_wh=(max(1,int(srcW*fit)),max(1,int(srcH*fit)))   # profile's on-screen size (for panning)
             self._base_disp=disp                               # clean image (for the measure overlay)
             self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
             self._pv=(disp.size[0],disp.size[1],z)                        # for pan / measure mapping
             self._update_legend()
             mode="" if self._scale() else " (auto)"
-            zoom_txt="" if z<=1.0 else f" · {z:.1f}× zoom"
+            zoom_txt="" if z<=1.0 else f" · {z:.1f}× · drag or arrow keys to pan"
             self.preview_note.configure(text=f"{self._last_npp:.3g} nm/px{mode} · updates live{zoom_txt}")
         except Exception as exc:
             self.preview.configure(image=None,text=f"⚠ {exc}",text_color=MUT)
