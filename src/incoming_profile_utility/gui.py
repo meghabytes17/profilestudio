@@ -413,7 +413,10 @@ class ProfileStudio(ctk.CTk):
         ctk.CTkOptionMenu(sm,values=["Off","2×","4×","8×"],variable=self.smooth_level,command=lambda _v:self.render_preview(),
                           width=76,font=self.uf,fg_color=NAVY_900,button_color=BLUE,button_hover_color=BLUE_L,text_color=ON).pack(side="left")
         self.preview_note=ctk.CTkLabel(bar,text="preview updates as you edit",font=self.eb,text_color=MUT); self.preview_note.grid(row=0,column=1,padx=(0,10))
-        ctk.CTkButton(bar,text="Save .bmp…",command=self.save_bmp,font=self.ub,width=120,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).grid(row=0,column=2)
+        poly_btn=ctk.CTkButton(bar,text="⬡ Polygons…",command=self.export_polygons,font=self.uf,width=104,fg_color="transparent",
+                      border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700); poly_btn.grid(row=0,column=2,padx=(0,6))
+        Tooltip(poly_btn,"Export the built profile as editable polygons: an SVG (open in Inkscape/Illustrator to nudge vertices) plus a JSON of exact nm coordinates.")
+        ctk.CTkButton(bar,text="Save .bmp…",command=self.save_bmp,font=self.ub,width=110,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).grid(row=0,column=3)
         # zoom bar (row 1): drag the preview to pan, scroll to zoom, double-click to reset
         zb=ctk.CTkFrame(bar,fg_color="transparent"); zb.grid(row=1,column=0,columnspan=3,sticky="ew",pady=(6,2)); zb.grid_columnconfigure(1,weight=1)
         ctk.CTkLabel(zb,text="Zoom",font=self.eb,text_color=SOFT).grid(row=0,column=0,padx=(0,8))
@@ -861,6 +864,22 @@ class ProfileStudio(ctk.CTk):
         if not path: return
         self._render_to(path, for_save=True)   # full-resolution, no anti-aliasing
         self.title(f"Incoming Profile Utility — saved {Path(path).name}")
+
+    def export_polygons(self):
+        from tkinter import filedialog, messagebox
+        path=filedialog.asksaveasfilename(defaultextension=".svg",initialfile="profile.svg",
+             filetypes=[("SVG vector","*.svg"),("JSON coordinates","*.json")],title="Export polygons")
+        if not path: return
+        low=path.lower(); stem=path[:-4] if (low.endswith(".svg") or low.endswith(".json")) else path
+        try:
+            base=proc.build_base(self._params()); st=proc.evaluate(base,self.stack.to_ops())
+            proc.export_polygons(st,self.palette,svg_path=stem+".svg",json_path=stem+".json")
+        except Exception as exc:
+            messagebox.showerror("Export failed",str(exc)); return
+        messagebox.showinfo("Polygons exported",
+            f"{Path(stem).name}.svg — editable vertices (Inkscape / Illustrator)\n"
+            f"{Path(stem).name}.json — exact nm coordinates per material")
+        self.title(f"Incoming Profile Utility — exported {Path(stem).name}.svg")
 
 
 def launch():

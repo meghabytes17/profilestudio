@@ -477,3 +477,62 @@ def render_profile_spec(spec: dict, palette, out_path, nm_per_px: float = 0.4):
     base = build_base(spec["base"])
     final = evaluate(base, spec.get("ops", []))
     return render_regions(final, palette, out_path, nm_per_px)
+
+
+def export_polygons(state: State, palette, svg_path=None, json_path=None, precision: int = 3):
+    """Export the finished profile as real editable polygons.
+
+    Coordinates are in nanometres (the model's units). The SVG uses a y-down transform so
+    it opens right-side-up in Inkscape / Illustrator for precise vertex edits; each material
+    is one <path> group filled with its palette colour. The JSON keeps exact per-material
+    ring coordinates ([[x, y], ...] with holes as separate inner rings). Returns a dict of
+    {material: [ {"exterior": [...], "holes": [[...], ...]}, ... ]}.
+    """
+    minx, miny, maxx, maxy = state.cell.bounds
+    W = maxx - minx
+    H = maxy - miny
+
+    def ring_xy(ring):
+        xs, ys = ring.coords.xy
+        return [[round(float(x), precision), round(float(y), precision)]
+                for x, y in zip(xs, ys)]
+
+    data = {}
+    for material, geom in state.regions:
+        parts = []
+        for poly in _polys(geom):
+            parts.append({"exterior": ring_xy(poly.exterior),
+                          "holes": [ring_xy(r) for r in poly.interiors]})
+        if parts:
+            data.setdefault(material, []).extend(parts)
+
+    if json_path is not None:
+        import json
+        with open(json_path, "w") as fh:
+            json.dump({"units": "nm",
+                       "cell": {"width": round(float(W), precision), "height": round(float(H), precision)},
+                       "materials": data}, fh, indent=2)
+
+    if svg_path is not None:
+        def d_for(poly):
+            def sub(r):
+                pts = ring_xy(r)
+                return "M " + " L ".join(f"{x:.3f},{y:.3f}" for x, y in pts) + " Z"
+            d = sub(poly.exterior)
+            for r in poly.interiors:              # holes (even-odd fill)
+                d += " " + sub(r)
+            return d
+        lines = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W:.1f}" height="{H:.1f}" '
+                 f'viewBox="{minx:.1f} {miny:.1f} {W:.1f} {H:.1f}">',
+                 f'<g transform="translate(0,{(miny + maxy):.1f}) scale(1,-1)">',
+                 f'<rect x="{minx:.1f}" y="{miny:.1f}" width="{W:.1f}" height="{H:.1f}" fill="black"/>']
+        for material, geom in state.regions:
+            hexc = palette.hex(material)
+            for poly in _polys(geom):
+                lines.append(f'<path d="{d_for(poly)}" fill="{hexc}" fill-rule="evenodd" '
+                             f'stroke="none" data-material="{material}"/>')
+        lines += ["</g>", "</svg>"]
+        with open(svg_path, "w") as fh:
+            fh.write("\n".join(lines))
+
+    return data

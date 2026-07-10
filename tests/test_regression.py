@@ -324,3 +324,23 @@ def test_fill_overfill_controls_height():
     assert abs(w_top(0) - 250) < 1e-6          # flush with the oxide surface
     assert abs(w_top(40) - 290) < 1e-6         # 40 nm overburden
     assert w_top(9999) <= 330 + 1e-6           # clamped to the cell top
+
+
+def test_export_polygons_svg_and_json(tmp_path):
+    """Export produces well-formed SVG and JSON with one entry per drawn material."""
+    import json, xml.dom.minidom as minidom
+    from incoming_profile_utility.process import export_polygons
+    from incoming_profile_utility.materials import load_palette
+    pal = load_palette()
+    base = build_base(dict(material_layers=[dict(material="hardmask", thickness=120,
+                          shape=[dict(kind="round", r=40)]), dict(material="silicon", thickness=200)],
+                          pitch=220, space=90, top_vacuum=30, opening_depth=120, opening_bottom_radius=40))
+    st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=25),
+                         dict(op="fill", material="tungsten", overfill=0)])
+    svg = tmp_path / "p.svg"; js = tmp_path / "p.json"
+    data = export_polygons(st, pal, svg_path=svg, json_path=js)
+    assert set(data) == {m for m, _ in st.regions}
+    minidom.parse(str(svg))                       # raises if malformed
+    j = json.loads(js.read_text())
+    assert j["units"] == "nm" and j["cell"]["width"] == 220.0
+    assert all(len(part["exterior"]) >= 4 for parts in data.values() for part in parts)
