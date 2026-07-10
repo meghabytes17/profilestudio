@@ -283,7 +283,7 @@ class ProfileStudio(ctk.CTk):
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
         self._undo=[]; self._redo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
         self._zoom=1.0; self._cx=0.5; self._cy=0.5; self._pv=None; self._pan=None   # zoom/pan view state
-        self._tool="move"; self._measure=False; self._prof_wh=None
+        self._tool="move"; self._measure=False; self._prof_wh=None; self._hint_job=None
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
@@ -473,10 +473,18 @@ class ProfileStudio(ctk.CTk):
         self._update_cursor(); self.render_preview()
     def _pan_start(self,e):
         if getattr(self,"_measure",False): return self._meas_start_cb(e)
+        if self._zoom<=1.0:
+            self._flash_hint("Zoom in to move — scroll over the preview or use the Zoom slider, then drag.")
+            return
         self._pan=(e.x,e.y,self._cx,self._cy)
-        if self._zoom>1.0:                              # visual feedback: grabbing
-            try: self._pv_target.configure(cursor="fleur")
-            except Exception: pass
+        try: self._pv_target.configure(cursor="fleur")
+        except Exception: pass
+    def _flash_hint(self,msg):
+        try:
+            self.preview_note.configure(text=msg,text_color=BLUE_L)
+            if getattr(self,"_hint_job",None): self.after_cancel(self._hint_job)
+            self._hint_job=self.after(2400,self.render_preview)     # restore the normal note
+        except Exception: pass
     def _pan_move(self,e):
         if getattr(self,"_measure",False): return self._meas_move_cb(e)
         if not self._pan or self._zoom<=1.0 or not self._pv: return
@@ -917,8 +925,13 @@ class ProfileStudio(ctk.CTk):
             self._pv=(disp.size[0],disp.size[1],z)                        # for pan / measure mapping
             self._update_legend()
             mode="" if self._scale() else " (auto)"
-            zoom_txt="" if z<=1.0 else f" · {z:.1f}× · drag or arrow keys to pan"
-            self.preview_note.configure(text=f"{self._last_npp:.3g} nm/px{mode} · updates live{zoom_txt}")
+            if z>1.0:
+                tail=f" · {z:.1f}× · drag or arrow keys to move"
+            elif getattr(self,"_tool","move")=="move":
+                tail=" · scroll over the preview to zoom, then drag to move"
+            else:
+                tail=""
+            self.preview_note.configure(text=f"{self._last_npp:.3g} nm/px{mode} · updates live{tail}",text_color=MUT)
         except Exception as exc:
             self.preview.configure(image=None,text=f"⚠ {exc}",text_color=MUT)
 
