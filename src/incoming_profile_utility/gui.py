@@ -56,11 +56,15 @@ def _nice_step(extent):
         if raw<=m*mag: return m*mag
     return 10*mag
 
-def compose_preview(bmp_path, nm_per_px, target_h=440, origin=(0.0,0.0)):
+def compose_preview(bmp_path, nm_per_px, target_h=440, origin=(0.0,0.0), max_w=None, max_h=None, return_disp=False):
     img=Image.open(bmp_path).convert("RGB"); w,h=img.size
-    disp=min(6.0, target_h/h); dw,dh=max(1,int(w*disp)),max(1,int(h*disp))
-    prof=img.resize((dw,dh), Image.NEAREST)
     ML,MB,MT,MR=48,30,12,14
+    disp=target_h/h
+    if max_h is not None: disp=min(disp,(max_h-(MT+MB))/h)     # fit inside the available box
+    if max_w is not None: disp=min(disp,(max_w-(ML+MR))/w)
+    disp=max(0.02,min(6.0,disp))
+    dw,dh=max(1,int(w*disp)),max(1,int(h*disp))
+    prof=img.resize((dw,dh), Image.NEAREST)
     canvas=Image.new("RGB",(ML+dw+MR, MT+dh+MB),(11,22,38)); canvas.paste(prof,(ML,MT))
     ov=Image.new("RGBA",canvas.size,(0,0,0,0)); d=ImageDraw.Draw(ov); font=ImageFont.load_default()
     ppn=disp/nm_per_px; wnm,hnm=w*nm_per_px,h*nm_per_px; sx,sy=_nice_step(wnm),_nice_step(hnm)
@@ -73,7 +77,8 @@ def compose_preview(bmp_path, nm_per_px, target_h=440, origin=(0.0,0.0)):
     while ny<=y0+hnm+1e-6:
         yy=MT+dh-(ny-y0)*ppn; d.line([(ML,yy),(ML+dw,yy)],fill=grid); d.text((6,yy-4),f"{int(round(ny))}",fill=tick,font=font); ny+=sy
     d.text((ML,MT+dh+16),"width nm  /  height nm ↑",fill=tick,font=font)
-    return Image.alpha_composite(canvas.convert("RGBA"),ov).convert("RGB")
+    out=Image.alpha_composite(canvas.convert("RGBA"),ov).convert("RGB")
+    return (out, disp) if return_disp else out
 
 
 class Tooltip:
@@ -469,9 +474,14 @@ class ProfileStudio(ctk.CTk):
         self._meas_start=None
         if not on: self.render_preview()          # clear any drawn line
     def _to_disp(self,e):
-        pw,ph,_=self._pv; lw=self.preview.winfo_width(); lh=self.preview.winfo_height()
-        ox=max(0,(lw-pw)/2); oy=max(0,(lh-ph)/2)
-        return (min(max(e.x-ox,0),pw), min(max(e.y-oy,0),ph))
+        pw,ph,_=self._pv
+        try: s=ctk.ScalingTracker.get_widget_scaling(self)
+        except Exception: s=1.0
+        lw=self.preview.winfo_width(); lh=self.preview.winfo_height()
+        dispw,disph=pw*s,ph*s                                  # CTkImage renders at size*scaling
+        ox=max(0,(lw-dispw)/2); oy=max(0,(lh-disph)/2)
+        x=(e.x-ox)/s; y=(e.y-oy)/s                             # -> composed (unscaled) coords
+        return (min(max(x,0),pw), min(max(y,0),ph))
     def _meas_start_cb(self,e):
         if self._pv: self._meas_start=self._to_disp(e)
     def _meas_move_cb(self,e):
@@ -845,9 +855,14 @@ class ProfileStudio(ctk.CTk):
                 py0=int((1-fy1)*H); py1=max(py0+1,int(round((1-fy0)*H)))   # image y is top-origin
                 crop=Path(tempfile.gettempdir())/"_ipu_crop.bmp"; im.crop((px0,py0,px1,py1)).save(crop)
                 src=crop; origin=(fx0*W*self._last_npp, fy0*H*self._last_npp)
-            disp=compose_preview(src,self._last_npp,target_h=440,origin=origin)
-            src_h=Image.open(src).size[1]; disp_scale=min(6.0,440/src_h)
-            self._nmpp_disp=self._last_npp/disp_scale          # real nm per on-screen pixel
+            self.preview.update_idletasks()
+            try: _s=ctk.ScalingTracker.get_widget_scaling(self)
+            except Exception: _s=1.0
+            avail_w=self.preview.winfo_width()/_s; avail_h=self.preview.winfo_height()/_s
+            if avail_w<80 or avail_h<80: avail_w,avail_h=760,460     # before first layout
+            disp,disp_scale=compose_preview(src,self._last_npp,target_h=440,origin=origin,
+                                            max_w=avail_w-6,max_h=avail_h-6,return_disp=True)
+            self._nmpp_disp=self._last_npp/disp_scale          # real nm per on-screen (composed) pixel
             self._base_disp=disp                               # clean image (for the measure overlay)
             self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
             self._pv=(disp.size[0],disp.size[1],z)                        # for pan / measure mapping
