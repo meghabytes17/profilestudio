@@ -283,6 +283,7 @@ class ProfileStudio(ctk.CTk):
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
         self._undo=[]; self._redo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
         self._zoom=1.0; self._cx=0.5; self._cy=0.5; self._pv=None; self._pan=None   # zoom/pan view state
+        self._tool="move"; self._measure=False; self._prof_wh=None
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
@@ -445,29 +446,37 @@ class ProfileStudio(ctk.CTk):
         self.zoom_slider.grid(row=0,column=1,sticky="ew",padx=6)
         ctk.CTkButton(zb,text="Reset",command=self._reset_zoom,font=self.uf,width=60,fg_color="transparent",border_width=1,
                       border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700).grid(row=0,column=2,padx=(6,0))
-        self.measure_btn=ctk.CTkButton(zb,text="📏 Measure",command=self._toggle_measure,font=self.uf,width=96,fg_color="transparent",
+        self.move_btn=ctk.CTkButton(zb,text="✥ Move",command=lambda:self._select_tool("move"),font=self.uf,width=84,
+                      fg_color="transparent",border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700)
+        self.move_btn.grid(row=0,column=3,padx=(6,0))
+        Tooltip(self.move_btn,"Move: drag (or use the arrow keys) to pan around the preview when zoomed in.")
+        self.measure_btn=ctk.CTkButton(zb,text="📏 Measure",command=lambda:self._select_tool("measure"),font=self.uf,width=96,fg_color="transparent",
                       border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700)
-        self.measure_btn.grid(row=0,column=3,padx=(6,0))
-        Tooltip(self.measure_btn,"Measure: drag a line on the preview to read its length in nm. Works at any zoom. Click again to turn off.")
+        self.measure_btn.grid(row=0,column=4,padx=(6,0))
+        Tooltip(self.measure_btn,"Measure: drag a line on the preview to read its length in nm. Works at any zoom.")
+        self.move_btn.configure(fg_color=GREEN,text_color=GREEN_INK,border_color=GREEN)   # Move active by default
         Tooltip(self.zoom_slider,"Zoom the preview. You can also scroll the wheel over the preview to zoom, drag to pan, and double-click to reset.")
 
     def _on_zoom_slider(self,_v=None):
         self._zoom=max(1.0,float(self.zoom_var.get()))
         if self._zoom<=1.0: self._cx=self._cy=0.5
-        self.render_preview()
+        self._update_cursor(); self.render_preview()
     def _reset_zoom(self):
         self._zoom=1.0; self._cx=self._cy=0.5
         if hasattr(self,"zoom_var"): self.zoom_var.set(1.0)
-        self.render_preview()
+        self._update_cursor(); self.render_preview()
     def _wheel_zoom(self,e):
         step=1.2 if getattr(e,"delta",0)>0 or getattr(e,"num",0)==4 else (1/1.2)
         self._zoom=min(8.0,max(1.0,self._zoom*step))
         if self._zoom<=1.0: self._cx=self._cy=0.5
         if hasattr(self,"zoom_var"): self.zoom_var.set(self._zoom)
-        self.render_preview()
+        self._update_cursor(); self.render_preview()
     def _pan_start(self,e):
         if getattr(self,"_measure",False): return self._meas_start_cb(e)
         self._pan=(e.x,e.y,self._cx,self._cy)
+        if self._zoom>1.0:                              # visual feedback: grabbing
+            try: self._pv_target.configure(cursor="fleur")
+            except Exception: pass
     def _pan_move(self,e):
         if getattr(self,"_measure",False): return self._meas_move_cb(e)
         if not self._pan or self._zoom<=1.0 or not self._pv: return
@@ -487,15 +496,29 @@ class ProfileStudio(ctk.CTk):
         self.render_preview()
 
     # ---- measure tool: drag a line, read its length in nm ----
-    def _toggle_measure(self):
-        self._measure=not getattr(self,"_measure",False)
-        on=self._measure
-        self.measure_btn.configure(fg_color=GREEN if on else "transparent",
-                                   text_color=GREEN_INK if on else ON, border_color=GREEN if on else BLUE_L)
-        try: self.preview.configure(cursor="crosshair" if on else "")
-        except Exception: pass
+    def _select_tool(self, tool):
+        """Mutually-exclusive preview tools: 'move' (pan) or 'measure'."""
+        self._tool=tool
+        self._measure=(tool=="measure")
+        for btn,name in ((self.move_btn,"move"),(self.measure_btn,"measure")):
+            active=(name==tool)
+            btn.configure(fg_color=GREEN if active else "transparent",
+                          text_color=GREEN_INK if active else ON, border_color=GREEN if active else BLUE_L)
         self._meas_start=None
-        if not on: self.render_preview()          # clear any drawn line
+        self._update_cursor()
+        if tool!="measure": self.render_preview()      # clear any measure line
+    def _update_cursor(self):
+        """Show a move cursor over the grid so it's clear you can pan (when zoomed)."""
+        if getattr(self,"_measure",False):
+            cur="crosshair"
+        elif getattr(self,"_zoom",1.0)>1.0:
+            cur="fleur"                                 # 4-way move arrows
+        else:
+            cur=""
+        for w in (getattr(self,"preview",None), getattr(self,"_pv_target",None)):
+            try:
+                if w is not None: w.configure(cursor=cur)
+            except Exception: pass
     def _to_disp(self,e):
         pw,ph,_=self._pv
         try: s=ctk.ScalingTracker.get_widget_scaling(self)
