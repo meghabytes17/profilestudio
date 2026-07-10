@@ -93,17 +93,67 @@ def mask_polygon(width, height, base_y, corner="square", facet_angle=45.0, radiu
 #   trench    : inverted default — vacuum trench carved into surround + mask
 #   line      : a solid feature (CD curve) standing in vacuum + mask
 # --------------------------------------------------------------------------- #
-def _trace_opening(trace, total_h, ref=None):
+def _pchip_slopes(x, y):
+    """Monotone cubic (Fritsch–Carlson) slopes — smooth, no overshoot below 0."""
+    n = len(x)
+    h = np.diff(x)
+    delta = np.diff(y) / h
+    m = np.zeros(n)
+    m[0] = delta[0]; m[-1] = delta[-1]
+    for i in range(1, n - 1):
+        if delta[i - 1] * delta[i] <= 0:
+            m[i] = 0.0
+        else:
+            w1 = 2 * h[i] + h[i - 1]; w2 = h[i] + 2 * h[i - 1]
+            m[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i])
+    return m
+
+
+def _pchip(x, y, xq):
+    x = np.asarray(x, float); y = np.asarray(y, float)
+    m = _pchip_slopes(x, y)
+    out = np.empty_like(xq, float)
+    idx = np.clip(np.searchsorted(x, xq) - 1, 0, len(x) - 2)
+    for k, xi in enumerate(xq):
+        i = idx[k]; h = x[i + 1] - x[i]; t = (xi - x[i]) / h
+        h00 = 2 * t**3 - 3 * t**2 + 1; h10 = t**3 - 2 * t**2 + t
+        h01 = -2 * t**3 + 3 * t**2; h11 = t**3 - t**2
+        out[k] = h00 * y[i] + h10 * h * m[i] + h01 * y[i + 1] + h11 * h * m[i + 1]
+    return out
+
+
+def _smooth_trace(pts, samples=240):
+    """Densify (width,height) control points into a smooth symmetric wall via monotone
+    cubic interpolation of half-width vs height. Preserves the endpoints and never lets
+    the width overshoot below 0."""
+    pts = sorted(pts, key=lambda t: t[1])
+    hs, ws = [], []
+    for w, h in pts:                       # collapse duplicate heights (keep max width)
+        if hs and abs(h - hs[-1]) < 1e-6:
+            ws[-1] = max(ws[-1], w)
+        else:
+            hs.append(h); ws.append(w)
+    if len(hs) < 3:
+        return [(w, h) for w, h in zip(ws, hs)]
+    hq = np.linspace(hs[0], hs[-1], samples)
+    wq = np.clip(_pchip(hs, ws, hq), 0.0, None)
+    return list(zip(wq.tolist(), hq.tolist()))
+
+
+def _trace_opening(trace, total_h, ref=None, smooth=False):
     """Symmetric opening polygon from a width/height trace.
 
     ref is None -> top-align (trace's top at the stack top). Otherwise ref is the
     y-height (from the stack bottom) where the trace's height=0 is placed, and the
     trace extends up/down from there (its own height values, so negative heights sit
-    below the reference).
+    below the reference). When ``smooth`` is set, the walls are smoothly interpolated
+    (monotone cubic) through the control points.
     """
     pts = sorted(((float(w), float(h)) for w, h in trace), key=lambda t: t[1])
     if not pts:
         return None
+    if smooth and len(pts) >= 3:
+        pts = _smooth_trace(pts)
     if ref is None:
         off = total_h - max(h for _, h in pts)     # top-align
     else:
@@ -185,7 +235,7 @@ def _build_material_stack(p: dict) -> State:
     trace = p.get("opening_trace")
     open_bottom = 0.0
     if trace:
-        opening = _trace_opening(trace, total, p.get("opening_ref"))
+        opening = _trace_opening(trace, total, p.get("opening_ref"), smooth=p.get("opening_smooth", False))
     else:
         depth = p.get("opening_depth")
         open_bottom = 0.0 if (depth is None or depth <= 0 or depth >= total) else (total - depth)
