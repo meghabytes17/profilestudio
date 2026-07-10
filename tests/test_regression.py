@@ -277,10 +277,17 @@ def test_round_plus_taper_keeps_mask_connected():
     assert parts <= 2 and hm.is_valid          # left + right bars only, no slivers
 
 
+def _unique_colors(path):
+    import cv2
+    return {tuple(px) for px in cv2.imread(str(path)).reshape(-1, 3).tolist()}
+
+
+BLACK = (0, 0, 0)
+
+
 def test_smoothing_introduces_no_blended_colors(tmp_path):
-    """Oversampled (smoothed) renders must contain ONLY exact palette colors — no
-    anti-alias blends — and never more colors than materials + background."""
-    import cv2, numpy as np
+    """Oversampled (smoothed) renders contain ONLY exact palette colors — no anti-alias
+    blends — and the exact color SET does not change with the smoothing level."""
     from incoming_profile_utility.process import render_regions
     from incoming_profile_utility.materials import load_palette
     pal = load_palette()
@@ -289,28 +296,112 @@ def test_smoothing_introduces_no_blended_colors(tmp_path):
                           top_vacuum=40, opening_depth=200, opening_bottom_radius=40))
     st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=30),
                          dict(op="fill", material="tungsten")])
-    allowed = {tuple(pal.bgr(m)) for m, _ in st.regions} | {(0, 0, 0)}
+    allowed = {tuple(pal.bgr(m)) for m, _ in st.regions} | {BLACK}
+    ref = None
     for ss in (1, 2, 4, 8):
         out = tmp_path / f"s{ss}.bmp"
         render_regions(st, pal, out, 0.6, oversample=ss)
-        cols = {tuple(px) for px in cv2.imread(str(out)).reshape(-1, 3).tolist()}
+        cols = _unique_colors(out)
         assert cols <= allowed, f"blended colors at {ss}x: {cols - allowed}"
+        if ref is None:
+            ref = cols
+        assert cols == ref, f"smoothing at {ss}x changed the color set: {cols ^ ref}"
 
 
-def test_pixels_never_overlap_two_materials(tmp_path):
-    """Regions are disjoint and each pixel gets exactly one material color."""
-    import cv2
+def test_color_count_equals_material_count(tmp_path):
+    """CRITICAL: the BMP holds exactly one color per material (plus the black background),
+    at EVERY smoothing level — never a blended or extra color.
+
+    This is the direct guard for the two high-priority reports: 'no pixels should overlap'
+    and 'the number of colors must equal the number of materials'.
+    """
+    from incoming_profile_utility.process import render_regions
+    from incoming_profile_utility.materials import load_palette
+    pal = load_palette()
+    base = build_base(dict(material_layers=[dict(material="hardmask", thickness=110,
+                          shape=[dict(kind="round", r=40)]), dict(material="silicon", thickness=220)],
+                          pitch=220, space=90, top_vacuum=30, opening_depth=110, opening_bottom_radius=40))
+    st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=25),
+                         dict(op="fill", material="tungsten", overfill=0)])
+    materials = [m for m, _ in st.regions]
+    assert len(set(materials)) == len(materials)            # scene declares no duplicate material
+    mat_colors = {tuple(pal.bgr(m)) for m in materials}
+    for ss in (1, 2, 4, 8):
+        out = tmp_path / f"c{ss}.bmp"
+        render_regions(st, pal, out, 0.45, oversample=ss)
+        cols = _unique_colors(out)
+        # every non-background color is exactly one material color, and all are present
+        assert cols - {BLACK} == mat_colors, f"{ss}x: {cols - {BLACK}} != {mat_colors}"
+        # distinct colors == number of materials (+ black background, which this scene has)
+        assert BLACK in cols
+        assert len(cols) == len(materials) + 1, f"{ss}x: {len(cols)} colors for {len(materials)} materials"
+
+
+def test_full_cell_fill_has_exactly_material_count_colors(tmp_path):
+    """When the profile fills the whole cell (no exposed background), the color count equals
+    the material count exactly — no black, no blends."""
     from incoming_profile_utility.process import render_regions
     from incoming_profile_utility.materials import load_palette
     pal = load_palette()
     base = build_base(dict(material_layers=[dict(material="hardmask", thickness=120),
-                                            dict(material="silicon", thickness=180)],
-                           pitch=200, space=70, top_vacuum=20, opening_depth=120))
-    st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=25)])
-    render_regions(st, pal, tmp_path / "o.bmp", 0.5)
-    cols = {tuple(px) for px in cv2.imread(str(tmp_path / "o.bmp")).reshape(-1, 3).tolist()}
-    allowed = {tuple(pal.bgr(m)) for m, _ in st.regions} | {(0, 0, 0)}
-    assert cols <= allowed
+                                            dict(material="silicon", thickness=200)],
+                           pitch=200, space=80, top_vacuum=0, opening_depth=120))
+    st = evaluate(base, [dict(op="fill", material="tungsten", overfill=9999)])  # fill to the top
+    mats = {tuple(pal.bgr(m)) for m, _ in st.regions}
+    for ss in (1, 4):
+        out = tmp_path / f"f{ss}.bmp"
+        render_regions(st, pal, out, 0.5, oversample=ss)
+        cols = _unique_colors(out)
+        assert BLACK not in cols, f"{ss}x: unexpected background"
+        assert cols == mats
+        assert len(cols) == len({m for m, _ in st.regions})
+
+
+def test_no_pixel_belongs_to_two_materials(tmp_path):
+    """Overlap check at BOTH levels: material regions are geometrically disjoint, and every
+    rendered pixel is exactly one material color (no mixed/overlap pixel)."""
+    from incoming_profile_utility.process import render_regions
+    from incoming_profile_utility.materials import load_palette
+    pal = load_palette()
+    base = build_base(dict(material_layers=[dict(material="hardmask", thickness=120,
+                          shape=[dict(kind="taper", angle=75)]), dict(material="oxide", thickness=220)],
+                          pitch=240, space=110, top_vacuum=10, opening_depth=120, opening_bottom_radius=50))
+    st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=25),
+                         dict(op="fill", material="tungsten", overfill=0)])
+    regs = st.regions
+    # (a) geometry: no two material regions share any area
+    for i in range(len(regs)):
+        for j in range(i + 1, len(regs)):
+            overlap = regs[i][1].intersection(regs[j][1]).area
+            assert overlap < 1e-6, f"{regs[i][0]} and {regs[j][0]} overlap by {overlap:.4f} nm^2"
+    # (b) raster: no pixel is a blend of two materials
+    mats = {tuple(pal.bgr(m)) for m, _ in regs}
+    for ss in (1, 4):
+        out = tmp_path / f"ov{ss}.bmp"
+        render_regions(st, pal, out, 0.4, oversample=ss)
+        cols = _unique_colors(out)
+        assert cols <= mats | {BLACK}
+        assert cols - {BLACK} == mats
+
+
+def test_reported_grey_over_yellow_boundary_is_clean(tmp_path):
+    """Direct regression for the tester's smooth4x.png report: a grey hardmask over a yellow
+    oxide, smoothed, must NOT produce a grey/yellow blended pixel at their boundary."""
+    from incoming_profile_utility.process import render_regions
+    from incoming_profile_utility.materials import load_palette
+    pal = load_palette()
+    base = build_base(dict(material_layers=[dict(material="hardmask", thickness=120,
+                          shape=[dict(kind="taper", angle=75)]), dict(material="oxide", thickness=220)],
+                          pitch=240, space=110, top_vacuum=10, opening_depth=120, opening_bottom_radius=50))
+    st = evaluate(base, [])
+    grey = tuple(pal.bgr("hardmask")); yellow = tuple(pal.bgr("oxide"))
+    for ss in (2, 4, 8):
+        out = tmp_path / f"gy{ss}.bmp"
+        render_regions(st, pal, out, 0.35, oversample=ss)
+        cols = _unique_colors(out)
+        # only grey, yellow and black may appear — nothing in between
+        assert cols <= {grey, yellow, BLACK}, f"{ss}x produced blends: {cols - {grey, yellow, BLACK}}"
+        assert {grey, yellow} <= cols
 
 
 def test_fill_overfill_controls_height():
