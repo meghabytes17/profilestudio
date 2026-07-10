@@ -399,14 +399,15 @@ class ProfileStudio(ctk.CTk):
 
     def _preview_card(self,parent):
         card=self._card(parent,"Preview"); card.grid(row=0,column=1,sticky="nsew")
-        fr=ctk.CTkFrame(card,fg_color=NAVY_900,corner_radius=10); fr.pack(expand=True,fill="both",padx=18,pady=6)
+        bottom=ctk.CTkFrame(card,fg_color="transparent"); bottom.pack(side="bottom",fill="x")   # controls stay visible
+        fr=ctk.CTkFrame(card,fg_color=NAVY_900,corner_radius=10); fr.pack(side="top",expand=True,fill="both",padx=18,pady=6)
         self.preview=ctk.CTkLabel(fr,text="",fg_color=NAVY_900); self.preview.pack(expand=True,fill="both",padx=10,pady=10)
         for ev,cb in (("<ButtonPress-1>",self._pan_start),("<B1-Motion>",self._pan_move),
                       ("<Double-Button-1>",lambda e:self._reset_zoom()),
                       ("<MouseWheel>",self._wheel_zoom),("<Button-4>",self._wheel_zoom),("<Button-5>",self._wheel_zoom)):
             self.preview.bind(ev,cb,add="+")
-        self.legend=ctk.CTkFrame(card,fg_color="transparent"); self.legend.pack(fill="x",padx=18,pady=(0,4))
-        bar=ctk.CTkFrame(card,fg_color="transparent"); bar.pack(fill="x",padx=18,pady=(4,4)); bar.grid_columnconfigure(0,weight=1)
+        self.legend=ctk.CTkFrame(bottom,fg_color="transparent"); self.legend.pack(fill="x",padx=18,pady=(0,4))
+        bar=ctk.CTkFrame(bottom,fg_color="transparent"); bar.pack(fill="x",padx=18,pady=(4,8)); bar.grid_columnconfigure(0,weight=1)
         sm=ctk.CTkFrame(bar,fg_color="transparent"); sm.grid(row=0,column=0,sticky="w")
         ctk.CTkLabel(sm,text="Smoothing",font=self.eb,text_color=SOFT).pack(side="left",padx=(0,6))
         ctk.CTkOptionMenu(sm,values=["Off","2×","4×","8×"],variable=self.smooth_level,command=lambda _v:self.render_preview(),
@@ -422,6 +423,10 @@ class ProfileStudio(ctk.CTk):
         self.zoom_slider.grid(row=0,column=1,sticky="ew",padx=6)
         ctk.CTkButton(zb,text="Reset",command=self._reset_zoom,font=self.uf,width=60,fg_color="transparent",border_width=1,
                       border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700).grid(row=0,column=2,padx=(6,0))
+        self.measure_btn=ctk.CTkButton(zb,text="📏 Measure",command=self._toggle_measure,font=self.uf,width=96,fg_color="transparent",
+                      border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700)
+        self.measure_btn.grid(row=0,column=3,padx=(6,0))
+        Tooltip(self.measure_btn,"Measure: drag a line on the preview to read its length in nm. Works at any zoom. Click again to turn off.")
         Tooltip(self.zoom_slider,"Zoom the preview. You can also scroll the wheel over the preview to zoom, drag to pan, and double-click to reset.")
 
     def _on_zoom_slider(self,_v=None):
@@ -439,14 +444,43 @@ class ProfileStudio(ctk.CTk):
         if hasattr(self,"zoom_var"): self.zoom_var.set(self._zoom)
         self.render_preview()
     def _pan_start(self,e):
+        if getattr(self,"_measure",False): return self._meas_start_cb(e)
         self._pan=(e.x,e.y,self._cx,self._cy)
     def _pan_move(self,e):
+        if getattr(self,"_measure",False): return self._meas_move_cb(e)
         if not self._pan or self._zoom<=1.0 or not self._pv: return
         x0,y0,cx0,cy0=self._pan; pw,ph,z=self._pv
         # composed px -> cell fraction (data area ~ full composed size); drag content with cursor
         self._cx=cx0-(e.x-x0)/max(1,pw)/z
         self._cy=cy0+(e.y-y0)/max(1,ph)/z
         self.render_preview()
+
+    # ---- measure tool: drag a line, read its length in nm ----
+    def _toggle_measure(self):
+        self._measure=not getattr(self,"_measure",False)
+        on=self._measure
+        self.measure_btn.configure(fg_color=GREEN if on else "transparent",
+                                   text_color=GREEN_INK if on else ON, border_color=GREEN if on else BLUE_L)
+        try: self.preview.configure(cursor="crosshair" if on else "")
+        except Exception: pass
+        self._meas_start=None
+        if not on: self.render_preview()          # clear any drawn line
+    def _to_disp(self,e):
+        pw,ph,_=self._pv; lw=self.preview.winfo_width(); lh=self.preview.winfo_height()
+        ox=max(0,(lw-pw)/2); oy=max(0,(lh-ph)/2)
+        return (min(max(e.x-ox,0),pw), min(max(e.y-oy,0),ph))
+    def _meas_start_cb(self,e):
+        if self._pv: self._meas_start=self._to_disp(e)
+    def _meas_move_cb(self,e):
+        if not self._meas_start or getattr(self,"_base_disp",None) is None or not self._pv: return
+        p0=self._meas_start; p1=self._to_disp(e)
+        im=self._base_disp.copy(); d=ImageDraw.Draw(im)
+        d.line([p0,p1],fill=(79,208,147),width=2)
+        for p in (p0,p1): d.ellipse([p[0]-3,p[1]-3,p[0]+3,p[1]+3],fill=(79,208,147))
+        dist=((p1[0]-p0[0])**2+(p1[1]-p0[1])**2)**0.5*self._nmpp_disp
+        d.text((min(p0[0],p1[0])+6, min(p0[1],p1[1])-12), f"{dist:.1f} nm",
+               fill=(230,240,255), font=ImageFont.load_default())
+        self.preview.configure(image=ctk.CTkImage(light_image=im,dark_image=im,size=im.size))
 
     def _footer(self):
         ctk.CTkLabel(self,text="Symmetric · 24-bit BMP · 2D-polygon process model",font=self.eb,text_color=MUT).grid(row=3,column=0,sticky="w",padx=22,pady=(0,10))
@@ -809,8 +843,11 @@ class ProfileStudio(ctk.CTk):
                 crop=Path(tempfile.gettempdir())/"_ipu_crop.bmp"; im.crop((px0,py0,px1,py1)).save(crop)
                 src=crop; origin=(fx0*W*self._last_npp, fy0*H*self._last_npp)
             disp=compose_preview(src,self._last_npp,target_h=440,origin=origin)
+            src_h=Image.open(src).size[1]; disp_scale=min(6.0,440/src_h)
+            self._nmpp_disp=self._last_npp/disp_scale          # real nm per on-screen pixel
+            self._base_disp=disp                               # clean image (for the measure overlay)
             self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
-            self._pv=(disp.size[0],disp.size[1],z)                        # for pan mapping
+            self._pv=(disp.size[0],disp.size[1],z)                        # for pan / measure mapping
             self._update_legend()
             mode="" if self._scale() else " (auto)"
             zoom_txt="" if z<=1.0 else f" · {z:.1f}× zoom"
