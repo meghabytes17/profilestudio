@@ -313,10 +313,19 @@ def planar_deposit(state: State, material: str, thickness: float) -> State:
     st.add(material, box(minx, top_y, maxx, top_y + thickness)); return st
 
 
-def fill(state: State, material: str, up_to: float | None = None) -> State:
-    """Fill the open region (trenches, voids) up to a height (default: feature top)."""
+def fill(state: State, material: str, overfill: float = 0.0, up_to: float | None = None) -> State:
+    """Gap-fill the open region (trenches, voids).
+
+    By default the fill is flush with the surface (the top of the existing solid). A
+    positive `overfill` adds that many nm of blanket material above the surface (overburden
+    you might later planarize away). `up_to` overrides with an absolute fill height.
+    """
     minx, miny, maxx, maxy = state.cell.bounds
-    level = up_to if up_to is not None else maxy
+    if up_to is not None:
+        level = up_to
+    else:
+        surface = max((g.bounds[3] for _, g in state.regions), default=miny)
+        level = min(maxy, surface + max(0.0, overfill))
     region = state.open().intersection(box(minx, miny, maxx, level))
     st = state.copy(); st.add(material, region); return st
 

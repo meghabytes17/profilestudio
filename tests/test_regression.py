@@ -311,3 +311,16 @@ def test_pixels_never_overlap_two_materials(tmp_path):
     cols = {tuple(px) for px in cv2.imread(str(tmp_path / "o.bmp")).reshape(-1, 3).tolist()}
     allowed = {tuple(pal.bgr(m)) for m, _ in st.regions} | {(0, 0, 0)}
     assert cols <= allowed
+
+
+def test_fill_overfill_controls_height():
+    """Fill is flush with the surface at overfill=0 and adds blanket overburden above it."""
+    base = build_base(dict(material_layers=[dict(material="oxide", thickness=250)],
+                           pitch=200, space=90, top_vacuum=80, opening_depth=250,
+                           opening_bottom_radius=45))
+    def w_top(overfill):
+        st = evaluate(base, [dict(op="fill", material="tungsten", overfill=overfill)])
+        return [g for m, g in st.regions if m == "tungsten"][0].bounds[3]
+    assert abs(w_top(0) - 250) < 1e-6          # flush with the oxide surface
+    assert abs(w_top(40) - 290) < 1e-6         # 40 nm overburden
+    assert w_top(9999) <= 330 + 1e-6           # clamped to the cell top

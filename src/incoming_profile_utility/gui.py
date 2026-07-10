@@ -29,7 +29,9 @@ OP_PRESETS = {"deposit":("Deposit · conformal","oxide",8),"fill":("Fill","tungs
               "etch":("Etch · anisotropic","(any)",5),"planarize":("Planarize","oxide",240)}
 OP_INFO = ("Deposit · conformal: uniform film of the set thickness on all exposed surfaces.\n"
            "Deposit · planar: flat slab of the set thickness on top.\n"
-           "Fill: fills the opening with the chosen material.\n"
+           "Fill: gap-fills the opening flush with the surface. The number is OVERFILL — extra\n"
+           "  nm of blanket material above the surface (0 = flush). Deposit/Fill can use ANY\n"
+           "  material in the palette; you don't need to add it to the stack first.\n"
            "Etch: removes to the set depth. Pick a material to etch just that one (stops on "
            "others), or (any) to etch everything exposed. Anisotropy 1 = vertical, 0 = isotropic undercut.\n"
            "Planarize: cut everything above the given height (CMP).")
@@ -39,7 +41,7 @@ def _op_to_row(op):
     o=op.get("op")
     if o=="conformal_deposit": return ("Deposit · conformal", op.get("material","oxide"), op.get("thickness",0), 1.0)
     if o=="planar_deposit":    return ("Deposit · planar", op.get("material","oxide"), op.get("thickness",0), 1.0)
-    if o=="fill":              return ("Fill", op.get("material","tungsten"), 0, 1.0)
+    if o=="fill":              return ("Fill", op.get("material","tungsten"), op.get("overfill",0), 1.0)
     if o=="etch":
         a=op.get("anisotropy",1.0); mat=op.get("material") or "(any)"
         return (("Etch · isotropic" if a<=0 else "Etch · anisotropic"), mat, op.get("depth",0), a)
@@ -131,8 +133,9 @@ class MaterialLayerRow:
         self.shape_btn=ctk.CTkButton(self.frame, text="◐ shape", width=64, font=app.eb, fg_color="transparent", border_width=1,
                      border_color=BLUE_L, text_color=SOFT, hover_color=NAVY_700, command=lambda: app._edit_shape(self))
         self.shape_btn.pack(side="right", padx=(4,2)); self._refresh_shape_btn()
-        Tooltip(self.shape_btn, "Shape this layer's opening: round / chamfer / facet the top corners, "
-                                "or taper the sidewall (taper angle = sidewall angle from the horizontal base, 90° = vertical).")
+        Tooltip(self.shape_btn, "Shape this layer's opening. Add one or MORE treatments (they stack): round / "
+                                "chamfer / facet the top corners, and/or taper the sidewall (taper angle = "
+                                "sidewall angle from the horizontal base, 90° = vertical).")
     def _refresh_shape_btn(self):
         self.shape_btn.configure(text=f"◐ shape ({len(self.shape)})" if self.shape else "◐ shape",
                                  text_color=(GREEN if self.shape else SOFT))
@@ -178,11 +181,13 @@ class OpRow:
         else:
             self.mat.pack(side="left", padx=2, pady=8, before=self.num)
             if lbl in ("Etch · isotropic","Etch · anisotropic"):
-                vals=["(any)"]+names; self.mat.configure(state="normal", values=vals)
+                vals=["(any)"]+names   # etch acts on materials already present
+                self.mat.configure(state="normal", values=vals)
                 if self.mat.get() not in vals: self.mat.set("(any)")
-            else:
-                self.mat.configure(state="normal", values=names)
-                if self.mat.get() not in names and names: self.mat.set(names[0])
+            else:                       # Deposit / Fill introduce NEW material -> whole palette
+                vals=self.host.app.palette.names()
+                self.mat.configure(state="normal", values=vals)
+                if self.mat.get() not in vals and vals: self.mat.set(vals[0])
         if lbl=="Etch · anisotropic": self.aniso_lbl.pack(side="left",padx=(6,1)); self.aniso.pack(side="left")
         else: self.aniso_lbl.pack_forget(); self.aniso.pack_forget()
     def to_op(self):
@@ -192,7 +197,7 @@ class OpRow:
         tgt=None if mat=="(any)" else mat
         if lbl=="Deposit · conformal": return dict(op="conformal_deposit", material=mat, thickness=n)
         if lbl=="Deposit · planar":    return dict(op="planar_deposit", material=mat, thickness=n)
-        if lbl=="Fill":                return dict(op="fill", material=mat)
+        if lbl=="Fill":                return dict(op="fill", material=mat, overfill=n)
         if lbl=="Etch · isotropic":    return dict(op="etch", depth=n, anisotropy=0.0, material=tgt)
         if lbl=="Etch · anisotropic":
             try: a=float(self.aniso.get())
@@ -268,6 +273,7 @@ class ProfileStudio(ctk.CTk):
         self.hf=ctk.CTkFont(family="Inter",size=22,weight="bold")   # header title
         self.grid_columnconfigure(0,weight=1); self.grid_rowconfigure(2,weight=1)
         self._header(); self._toolbar(); self._body(); self._footer()
+        self.after(60, self._fit_to_screen)
         self.bind_class("Entry","<FocusIn>", lambda e: self._capture())   # one undo step per field edit
         self.after(160, self.render_preview)
 
@@ -312,6 +318,20 @@ class ProfileStudio(ctk.CTk):
         sep()
         tbtn("↺ Reset",self._reset,"Reset everything to a blank canvas",w=70)
 
+    def _fit_to_screen(self):
+        """Keep the window within the physical screen at ANY Windows display scaling,
+        so no panel (e.g. the process stack) ends up off-screen."""
+        try:
+            sw=self.winfo_screenwidth(); sh=self.winfo_screenheight()
+            try: wsf=ctk.ScalingTracker.get_window_scaling(self)
+            except Exception: wsf=1.0
+            max_w=int(sw/wsf)-40; max_h=int(sh/wsf)-90
+            w=min(1180,max_w); h=min(820,max_h)
+            self.geometry(f"{w}x{h}")
+            self.minsize(min(880,w), min(540,h))
+        except Exception:
+            pass
+
     def _body(self):
         body=ctk.CTkFrame(self,fg_color="transparent"); body.grid(row=2,column=0,sticky="nsew",padx=18,pady=16)
         body.grid_columnconfigure(0,weight=0,minsize=580); body.grid_columnconfigure(1,weight=1); body.grid_rowconfigure(0,weight=1)
@@ -319,7 +339,7 @@ class ProfileStudio(ctk.CTk):
 
     def _inputs(self,parent):
         card=self._card(parent,"Inputs"); card.grid(row=0,column=0,sticky="nsew",padx=(0,12))
-        self.param_page=ctk.CTkScrollableFrame(card,fg_color="transparent",height=540)
+        self.param_page=ctk.CTkScrollableFrame(card,fg_color="transparent",height=440)
         self.param_page.pack(fill="both",expand=True,padx=10)
         self.entries={}
 
@@ -559,7 +579,7 @@ class ProfileStudio(ctk.CTk):
     def _edit_shape(self, row):
         dlg=ctk.CTkToplevel(self); dlg.title("Top-corner shape"); dlg.geometry("440x380"); dlg.configure(fg_color=NAVY_800); dlg.transient(self)
         ctk.CTkLabel(dlg,text=f"Top-corner shape · {row.mat.get()}",font=self.ub,text_color=ON).pack(anchor="w",padx=16,pady=(12,2))
-        ctk.CTkLabel(dlg,text="Treatments stack (combine), applied to both top corners (symmetric).",
+        ctk.CTkLabel(dlg,text="Stack MULTIPLE treatments here — e.g. Round + Taper. They combine (order-independent) and apply symmetrically to both corners.",
                      font=self.eb,text_color=MUT,wraplength=400,justify="left").pack(anchor="w",padx=16,pady=(0,6))
         cont=ctk.CTkScrollableFrame(dlg,fg_color="transparent",height=210); cont.pack(fill="both",expand=True,padx=10)
         trows=[]
@@ -615,9 +635,10 @@ class ProfileStudio(ctk.CTk):
             else: p1.insert(0,str(t.get("r",0)))
             trows.append(rec); sync()
         for t in row.shape: add_tr(t)
+        if not row.shape: add_tr()          # start with one visible row so the pattern is obvious
         bar=ctk.CTkFrame(dlg,fg_color="transparent"); bar.pack(fill="x",padx=12,pady=8)
-        ctk.CTkButton(bar,text="＋ Add treatment",command=lambda:(add_tr(),commit()),font=self.uf,fg_color=NAVY_900,
-                      border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
+        ctk.CTkButton(bar,text="＋ Add another treatment",command=lambda:(add_tr(),commit()),font=self.ub,fg_color="transparent",
+                      border_width=1,border_color=GREEN,text_color=GREEN,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
         ctk.CTkButton(bar,text="Done",command=dlg.destroy,font=self.ub,width=90,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).pack(side="left",padx=2)
 
     def _add_material(self):
