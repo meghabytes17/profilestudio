@@ -37,11 +37,6 @@ OP_INFO = ("Deposit · conformal: uniform film of the set thickness on all expos
            "Planarize: cut everything above the given height (CMP).")
 
 
-def _f(v, d=0.0):
-    try: return float(v)
-    except (TypeError, ValueError): return d
-
-
 def _op_to_row(op):
     o=op.get("op")
     if o=="conformal_deposit": return ("Deposit · conformal", op.get("material","oxide"), op.get("thickness",0), 1.0)
@@ -272,8 +267,6 @@ class ProfileStudio(ctk.CTk):
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
         self._undo=[]; self._redo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
         self._zoom=1.0; self._cx=0.5; self._cy=0.5; self._pv=None; self._pan=None   # zoom/pan view state
-        self._edit_open=False; self._open_drag=None; self._open_handles=[]          # opening-outline editor
-        self._open_smooth=ctk.BooleanVar(value=True)
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
@@ -364,7 +357,7 @@ class ProfileStudio(ctk.CTk):
 
         # CSV lives with the stack — it defines the whole opening profile (overrides Space).
         csvf=ctk.CTkFrame(self.param_page,fg_color="transparent"); csvf.pack(fill="x",pady=(8,2)); csvf.grid_columnconfigure(2,weight=1)
-        ctk.CTkLabel(csvf,text="OPENING OUTLINE  (optional — overrides Space; load a CSV or ✎ Edit opening in the preview)",font=self.eb,text_color=BLUE_L).grid(row=0,column=0,columnspan=3,sticky="w",padx=6,pady=(2,2))
+        ctk.CTkLabel(csvf,text="OPENING FROM CSV  (optional — defines the profile, overrides Space)",font=self.eb,text_color=BLUE_L).grid(row=0,column=0,columnspan=3,sticky="w",padx=6,pady=(2,2))
         ocsv=ctk.CTkFrame(csvf,fg_color="transparent"); ocsv.grid(row=1,column=0,columnspan=3,sticky="ew",padx=6)
         ctk.CTkButton(ocsv,text="Load CSV…",command=self._load_csv,font=self.uf,fg_color=NAVY_900,border_width=1,
                       border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
@@ -410,7 +403,6 @@ class ProfileStudio(ctk.CTk):
         fr=ctk.CTkFrame(card,fg_color=NAVY_900,corner_radius=10); fr.pack(side="top",expand=True,fill="both",padx=18,pady=6)
         self.preview=ctk.CTkLabel(fr,text="",fg_color=NAVY_900); self.preview.pack(expand=True,fill="both",padx=10,pady=10)
         for ev,cb in (("<ButtonPress-1>",self._pan_start),("<B1-Motion>",self._pan_move),
-                      ("<ButtonRelease-1>",self._open_release),("<ButtonPress-3>",self._open_delete),
                       ("<Double-Button-1>",lambda e:self._reset_zoom()),
                       ("<MouseWheel>",self._wheel_zoom),("<Button-4>",self._wheel_zoom),("<Button-5>",self._wheel_zoom)):
             self.preview.bind(ev,cb,add="+")
@@ -439,16 +431,6 @@ class ProfileStudio(ctk.CTk):
         self.measure_btn.grid(row=0,column=3,padx=(6,0))
         Tooltip(self.measure_btn,"Measure: drag a line on the preview to read its length in nm. Works at any zoom. Click again to turn off.")
         Tooltip(self.zoom_slider,"Zoom the preview. You can also scroll the wheel over the preview to zoom, drag to pan, and double-click to reset.")
-        # opening-outline editor row
-        ob=ctk.CTkFrame(bar,fg_color="transparent"); ob.grid(row=2,column=0,columnspan=4,sticky="ew",pady=(4,2))
-        self.edit_open_btn=ctk.CTkButton(ob,text="✎ Edit opening",command=self._toggle_edit_opening,font=self.uf,width=118,
-                      fg_color="transparent",border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700)
-        self.edit_open_btn.pack(side="left")
-        Tooltip(self.edit_open_btn,"Edit opening: drag the round handles to shape the opening outline. Click empty space to add a point, right-click a handle to delete it. Always symmetric.")
-        ctk.CTkCheckBox(ob,text="Smooth curve",variable=self._open_smooth,command=self.render_preview,font=self.eb,
-                        text_color=SOFT,checkbox_width=18,checkbox_height=18,border_width=2,
-                        fg_color=BLUE,hover_color=BLUE_L).pack(side="left",padx=(10,0))
-        self.edit_open_hint=ctk.CTkLabel(ob,text="",font=self.eb,text_color=MUT); self.edit_open_hint.pack(side="left",padx=(10,0))
 
     def _on_zoom_slider(self,_v=None):
         self._zoom=max(1.0,float(self.zoom_var.get()))
@@ -459,18 +441,15 @@ class ProfileStudio(ctk.CTk):
         if hasattr(self,"zoom_var"): self.zoom_var.set(1.0)
         self.render_preview()
     def _wheel_zoom(self,e):
-        if getattr(self,"_edit_open",False): return
         step=1.2 if getattr(e,"delta",0)>0 or getattr(e,"num",0)==4 else (1/1.2)
         self._zoom=min(8.0,max(1.0,self._zoom*step))
         if self._zoom<=1.0: self._cx=self._cy=0.5
         if hasattr(self,"zoom_var"): self.zoom_var.set(self._zoom)
         self.render_preview()
     def _pan_start(self,e):
-        if getattr(self,"_edit_open",False): return self._open_press(e)
         if getattr(self,"_measure",False): return self._meas_start_cb(e)
         self._pan=(e.x,e.y,self._cx,self._cy)
     def _pan_move(self,e):
-        if getattr(self,"_edit_open",False): return self._open_drag_move(e)
         if getattr(self,"_measure",False): return self._meas_move_cb(e)
         if not self._pan or self._zoom<=1.0 or not self._pv: return
         x0,y0,cx0,cy0=self._pan; pw,ph,z=self._pv
@@ -478,89 +457,6 @@ class ProfileStudio(ctk.CTk):
         self._cx=cx0-(e.x-x0)/max(1,pw)/z
         self._cy=cy0+(e.y-y0)/max(1,ph)/z
         self.render_preview()
-
-    # ---- opening-outline editor: drag symmetric control points ----
-    ML_=48; MT_=12                                   # must match compose_preview margins
-    def _open_geom(self):
-        b=self._last_state.cell.bounds; pitch=b[2]-b[0]; maxy=b[3]
-        ppn=1.0/max(1e-9,self._nmpp_disp)
-        return pitch,maxy,ppn
-    def _open_to_comp(self,w,h):
-        pitch,maxy,ppn=self._open_geom()
-        return (self.ML_+(pitch/2.0+w/2.0)*ppn, self.MT_+(maxy-h)*ppn)
-    def _comp_to_open(self,cx,cy):
-        pitch,maxy,ppn=self._open_geom()
-        hw=(cx-self.ML_)/ppn-pitch/2.0; y=maxy-(cy-self.MT_)/ppn
-        return (max(0.0,2.0*hw), y)                   # width>=0, symmetric by construction
-    def _toggle_edit_opening(self):
-        self._edit_open=not self._edit_open
-        on=self._edit_open
-        if on:
-            self._reset_zoom()
-            if getattr(self,"_measure",False): self._toggle_measure()
-            if not self.opening_trace: self._seed_opening_trace()
-            self.csv_ref_entry.delete(0,"end"); self.csv_ref_entry.insert(0,"0")   # absolute heights
-            self.edit_open_hint.configure(text="drag handles · click to add · right-click to delete")
-        else:
-            self.edit_open_hint.configure(text=""); self._capture()
-        self.edit_open_btn.configure(fg_color=GREEN if on else "transparent",
-                                     text_color=GREEN_INK if on else ON, border_color=GREEN if on else BLUE_L)
-        try: self.preview.configure(cursor="tcross" if on else "")
-        except Exception: pass
-        self.render_preview()
-    def _seed_opening_trace(self):
-        import math as _m
-        total=sum(_f(r.th.get(),0) for r in self.matlayer_rows) or 100.0
-        space=self._field("space") or 80.0
-        depth=self._field("opening_depth") or total
-        r=min(self._field("opening_bottom_radius") or 0.0, space/2.0)
-        ob=max(0.0, total-depth)
-        pts=[(space,total),(space,ob+r)]
-        for k in range(1,5):
-            a=(_m.pi/2)*k/5; pts.append((space*_m.cos(a), ob+r*(1-_m.sin(a))))
-        pts.append((0.0,ob))
-        self.opening_trace=[(float(w),float(h)) for w,h in pts]
-    def _nearest_handle(self,e):
-        cx,cy=self._to_disp(e); best,bd=None,1e9
-        for i,(hx,hy) in enumerate(self._open_handles):
-            d=(hx-cx)**2+(hy-cy)**2
-            if d<bd: bd,best=d,i
-        return best,bd,(cx,cy)
-    def _open_press(self,e):
-        if not self._pv or self._last_state is None: return
-        best,bd,(cx,cy)=self._nearest_handle(e)
-        if best is not None and bd<=14**2:
-            self._open_drag=best
-        else:
-            w,h=self._comp_to_open(cx,cy)
-            t=sorted(list(self.opening_trace)+[(w,h)], key=lambda p:p[1])
-            self.opening_trace=t
-            self._open_drag=next((i for i,(pw,ph) in enumerate(t) if ph==h and pw==w), None)
-            self.render_preview()
-    def _open_drag_move(self,e):
-        if self._open_drag is None or not self.opening_trace: return
-        cx,cy=self._to_disp(e); w,h=self._comp_to_open(cx,cy)
-        b=self._last_state.cell.bounds; h=min(max(h,b[1]),b[3])
-        t=list(self.opening_trace); t[self._open_drag]=(w,h); self.opening_trace=t
-        self.render_preview()
-    def _open_release(self,e):
-        if self._edit_open and self._open_drag is not None:
-            self.opening_trace=sorted(self.opening_trace,key=lambda p:p[1])
-            self._open_drag=None; self.render_preview()
-    def _open_delete(self,e):
-        if not self._edit_open or not self.opening_trace or not self._pv: return
-        best,bd,_=self._nearest_handle(e)
-        if best is not None and bd<=16**2 and len(self.opening_trace)>2:
-            t=list(self.opening_trace); del t[best]; self.opening_trace=t; self.render_preview()
-    def _draw_open_handles(self,img):
-        from PIL import ImageDraw
-        d=ImageDraw.Draw(img); self._open_handles=[]
-        pts=sorted(self.opening_trace,key=lambda p:p[1])
-        scr=[self._open_to_comp(w,h) for w,h in pts]
-        if len(scr)>=2: d.line(scr,fill=(110,208,240),width=2)
-        for (hx,hy) in scr:
-            d.ellipse([hx-5,hy-5,hx+5,hy+5],fill=(79,208,147),outline=(255,255,255))
-            self._open_handles.append((hx,hy))
 
     # ---- measure tool: drag a line, read its length in nm ----
     def _toggle_measure(self):
@@ -640,8 +536,7 @@ class ProfileStudio(ctk.CTk):
                     fields={k:self.entries[k].get() for k in self.entries},
                     scale=self.scale_entry.get(),
                     trace=self.opening_trace,
-                    csv_ref=self.csv_ref_entry.get(),
-                    opening_smooth=bool(self._open_smooth.get()))
+                    csv_ref=self.csv_ref_entry.get())
     def _capture(self):
         if self._loading: return
         snap=self._snapshot()
@@ -703,7 +598,6 @@ class ProfileStudio(ctk.CTk):
                 if k in self.entries: self.entries[k].delete(0,"end"); self.entries[k].insert(0,v)
             self.scale_entry.delete(0,"end"); self.scale_entry.insert(0,snap["scale"])
             self.csv_ref_entry.delete(0,"end"); self.csv_ref_entry.insert(0,snap.get("csv_ref",""))
-            self._open_smooth.set(bool(snap.get("opening_smooth",True)))
             self.opening_trace=snap.get("trace")
             self.csv_label.configure(
                 text=(f"✓ CSV loaded ({len(self.opening_trace)} pts)." if self.opening_trace
@@ -836,7 +730,6 @@ class ProfileStudio(ctk.CTk):
         p["material_layers"]=[r.to_layer() for r in self.matlayer_rows]
         if self.opening_trace:
             p["opening_trace"]=self.opening_trace
-            p["opening_smooth"]=bool(self._open_smooth.get())
             ref=self._csv_ref()
             if ref is not None: p["opening_ref"]=ref
         return p
@@ -956,10 +849,7 @@ class ProfileStudio(ctk.CTk):
             src_h=Image.open(src).size[1]; disp_scale=min(6.0,440/src_h)
             self._nmpp_disp=self._last_npp/disp_scale          # real nm per on-screen pixel
             self._base_disp=disp                               # clean image (for the measure overlay)
-            shown=disp
-            if self._edit_open and self.opening_trace:
-                shown=disp.copy(); self._draw_open_handles(shown)
-            self.preview.configure(image=ctk.CTkImage(light_image=shown,dark_image=shown,size=shown.size),text="")
+            self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
             self._pv=(disp.size[0],disp.size[1],z)                        # for pan / measure mapping
             self._update_legend()
             mode="" if self._scale() else " (auto)"

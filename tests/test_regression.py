@@ -435,31 +435,3 @@ def test_export_polygons_svg_and_json(tmp_path):
     j = json.loads(js.read_text())
     assert j["units"] == "nm" and j["cell"]["width"] == 220.0
     assert all(len(part["exterior"]) >= 4 for parts in data.values() for part in parts)
-
-
-def test_smooth_trace_is_symmetric_and_nonnegative():
-    """The opening editor's smooth curve stays symmetric and never produces negative width."""
-    from incoming_profile_utility.process import _trace_opening, _smooth_trace
-    pts = [(60, 300), (90, 240), (70, 160), (110, 90), (40, 20)]
-    poly = _trace_opening(pts, 320, ref=0, smooth=True)
-    assert poly.is_valid
-    minx, _, maxx, _ = poly.bounds
-    assert abs(minx + maxx) < 1e-6                 # centered / symmetric
-    assert min(w for w, _ in _smooth_trace(pts)) >= 0.0
-
-
-def test_smooth_trace_preserves_endpoints():
-    from incoming_profile_utility.process import _smooth_trace
-    pts = [(80, 0), (100, 50), (60, 120)]
-    dense = _smooth_trace(pts)
-    hs = [h for _, h in dense]
-    assert abs(hs[0] - 0) < 1e-6 and abs(hs[-1] - 120) < 1e-6   # endpoints kept
-    assert len(dense) > len(pts)                                # actually densified
-
-
-def test_trace_opening_smooth_toggle_changes_vertex_count():
-    from incoming_profile_utility.process import _trace_opening
-    pts = [(80, 0), (100, 50), (60, 120), (90, 180)]
-    straight = _trace_opening(pts, 200, ref=0, smooth=False)
-    smooth = _trace_opening(pts, 200, ref=0, smooth=True)
-    assert len(smooth.exterior.coords) > len(straight.exterior.coords)
