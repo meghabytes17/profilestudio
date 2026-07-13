@@ -10,7 +10,7 @@ base palette is available at runtime.
 """
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-datas = [("config/materials.json", "config")]
+datas = [("config/materials.json", "config"), ("assets/icon.png", "assets"), ("assets/icon.ico", "assets")]
 datas += collect_data_files("customtkinter")          # themes / assets
 
 hiddenimports = collect_submodules("customtkinter") + [
@@ -39,5 +39,5 @@ exe = EXE(
     upx=True,
     console=False,               # GUI app: no console window
     disable_windowed_traceback=False,
-    icon=None,                   # drop an .ico path here to brand the exe
+    icon="assets/icon.ico",      # SandBox-branded Profile Studio icon
 )

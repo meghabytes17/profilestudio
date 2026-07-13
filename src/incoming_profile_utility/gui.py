@@ -281,6 +281,7 @@ class ProfileStudio(ctk.CTk):
         super().__init__()
         ctk.set_appearance_mode("dark"); self.configure(fg_color=NAVY)
         self.title("Incoming Profile Utility"); self.geometry("1360x900")
+        self._set_app_icon()
         self.palette=load_palette(); self.opening_trace=None
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
         self._undo=[]; self._redo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
@@ -337,6 +338,22 @@ class ProfileStudio(ctk.CTk):
         tbtn("↷ Redo",self._redo_action,"Redo",w=66)
         sep()
         tbtn("↺ Reset",self._reset,"Reset everything to a blank canvas",w=70)
+
+    def _set_app_icon(self):
+        """Title-bar / taskbar icon. Works from source and from the frozen .exe."""
+        from .materials import _base_dir
+        assets=_base_dir()/"assets"
+        try:                                   # Windows: .ico gives the crisp taskbar icon
+            ico=assets/"icon.ico"
+            if ico.exists(): self.iconbitmap(default=str(ico))
+        except Exception: pass
+        try:                                   # cross-platform fallback / Linux
+            png=assets/"icon.png"
+            if png.exists():
+                from PIL import ImageTk
+                self._icon_img=ImageTk.PhotoImage(Image.open(png))
+                self.iconphoto(True, self._icon_img)
+        except Exception: pass
 
     def _fit_to_screen(self):
         """Keep the window within the physical screen at ANY Windows display scaling,

@@ -48,7 +48,7 @@ This is the easiest way to hand out a build without setting anything up locally.
 
 ## Customizing
 
-- **Icon:** put an `.ico` file path in `icon=` at the bottom of
+- **Icon:** the SandBox-branded icon (`assets/icon.ico`) is already wired into
   `incoming_profile_utility.spec`.
 - **Onedir instead of onefile** (faster startup, but a folder to zip): change the `EXE`
   section per PyInstaller's onedir template, or ask and I'll switch the spec.
