@@ -92,6 +92,37 @@ def test_ico_contains_all_windows_sizes():
     assert {(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)} <= sizes
 
 
+def test_ico_uses_dib_below_256_and_png_at_256():
+    """Windows Explorer expects classic DIB entries below 256px. PNG-compressed small entries
+    are a known cause of Explorer showing a generic/stale icon, so the encoding is asserted."""
+    import struct
+    raw = (ROOT / "assets" / "icon.ico").read_bytes()
+    _, typ, count = struct.unpack("<HHH", raw[:6])
+    assert typ == 1 and count >= 6
+    off = 6
+    seen = {}
+    for _ in range(count):
+        w, h, _, _, _, bpp, size, offset = struct.unpack("<BBBBHHII", raw[off:off + 16])
+        off += 16
+        W = w or 256
+        blob = raw[offset:offset + size]
+        assert len(blob) == size, f"{W}px entry is truncated"
+        assert bpp == 32, f"{W}px entry is not 32-bit"
+        seen[W] = "PNG" if blob[:8] == b"\x89PNG\r\n\x1a\n" else "DIB"
+    for px, fmt in seen.items():
+        if px >= 256:
+            assert fmt == "PNG", "the 256px entry should be PNG-compressed"
+        else:
+            assert fmt == "DIB", f"{px}px entry is {fmt}; Windows wants DIB below 256px"
+
+
+def test_every_ico_frame_decodes():
+    for s in (16, 32, 48, 64, 128, 256):
+        im = Image.open(ROOT / "assets" / "icon.ico")
+        im.size = (s, s)
+        assert im.convert("RGBA").size == (s, s)
+
+
 def test_icon_uses_brand_colors():
     png = Image.open(ROOT / "assets" / "icon.png").convert("RGB")
     cols = {c for _, c in png.getcolors(maxcolors=100000)}

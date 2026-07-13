@@ -68,15 +68,55 @@ def simplified():
     return im
 
 
+def _dib_entry(img: Image.Image) -> bytes:
+    """A classic DIB/BMP icon image: BITMAPINFOHEADER (double height) + BGRA pixels
+    (bottom-up) + a 1-bpp AND mask. Windows expects this format below 256px; PNG-compressed
+    small entries are a well-known cause of Explorer falling back to a generic icon."""
+    import struct
+    import numpy as np
+    w, h = img.size
+    a = np.array(img.convert("RGBA"), dtype=np.uint8)[::-1]          # bottom-up
+    bgra = a[:, :, [2, 1, 0, 3]].tobytes()                            # BGRA
+    header = struct.pack("<IiiHHIIiiII", 40, w, h * 2, 1, 32, 0, len(bgra), 0, 0, 0, 0)
+    stride = ((w + 31) // 32) * 4                                     # AND mask rows, 4-byte aligned
+    mask = np.zeros((h, stride), dtype=np.uint8)
+    transparent = a[:, :, 3] == 0
+    for x in range(w):                                                # set a bit where fully transparent
+        mask[:, x // 8] |= (transparent[:, x] * (0x80 >> (x % 8))).astype(np.uint8)
+    return header + bgra + mask.tobytes()
+
+
+def _png_entry(img: Image.Image) -> bytes:
+    import io
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def write_ico(path: Path, frames):
+    """Assemble a multi-resolution .ico by hand: DIB below 256px, PNG at 256px."""
+    import struct
+    blobs = [(_png_entry(f) if f.width >= 256 else _dib_entry(f)) for f in frames]
+    out = bytearray(struct.pack("<HHH", 0, 1, len(frames)))            # reserved, type=icon, count
+    offset = 6 + 16 * len(frames)
+    for f, blob in zip(frames, blobs):
+        w = 0 if f.width >= 256 else f.width                           # 0 means 256 in an ICO
+        h = 0 if f.height >= 256 else f.height
+        out += struct.pack("<BBBBHHII", w, h, 0, 0, 1, 32, len(blob), offset)
+        offset += len(blob)
+    for blob in blobs:
+        out += blob
+    path.write_bytes(bytes(out))
+    return path
+
+
 def build(outdir: Path):
     outdir.mkdir(parents=True, exist_ok=True)
     big, small = detailed(), simplified()
     big.resize((512, 512), Image.LANCZOS).save(outdir / "icon.png")   # window/taskbar icon
     frames = [big.resize((s, s), Image.LANCZOS) for s in (256, 128, 64, 48)]
     frames += [small.resize((s, s), Image.LANCZOS) for s in (32, 16)]
-    ico = outdir / "icon.ico"
-    frames[0].save(ico, format="ICO",
-                   sizes=[(f.width, f.height) for f in frames], append_images=frames[1:])
+    ico = write_ico(outdir / "icon.ico", frames)
     return ico, outdir / "icon.png"
 
 

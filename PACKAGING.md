@@ -52,3 +52,31 @@ This is the easiest way to hand out a build without setting anything up locally.
   `incoming_profile_utility.spec`.
 - **Onedir instead of onefile** (faster startup, but a folder to zip): change the `EXE`
   section per PyInstaller's onedir template, or ask and I'll switch the spec.
+
+## The .exe still shows the old icon
+
+The icon is baked into the .exe **at build time**, so an .exe built before the icon was added
+keeps the old one. After pulling, rebuild:
+
+```bat
+build_exe.bat
+```
+
+If a freshly built .exe *still* shows the old icon in File Explorer, that's the Windows icon
+cache, not the build. Confirm the .exe itself is right by checking its Properties, or force a
+refresh:
+
+```bat
+ie4uinit.exe -show
+```
+
+If it persists, clear the cache and restart Explorer:
+
+```bat
+taskkill /f /im explorer.exe
+del /a /q "%LOCALAPPDATA%\IconCache.db"
+del /a /q "%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache*"
+start explorer.exe
+```
+
+Renaming the .exe (or moving it to a different folder) also sidesteps the cached entry.
