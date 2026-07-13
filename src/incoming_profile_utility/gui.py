@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import sys
 import tempfile
 import tkinter as tk
 from pathlib import Path
@@ -340,20 +341,46 @@ class ProfileStudio(ctk.CTk):
         tbtn("↺ Reset",self._reset,"Reset everything to a blank canvas",w=70)
 
     def _set_app_icon(self):
-        """Title-bar / taskbar icon. Works from source and from the frozen .exe."""
+        """Title-bar / taskbar icon. Works from source and from the frozen .exe.
+
+        Two Windows quirks are handled:
+          * the taskbar groups by 'AppUserModelID' — without one, a script shows python.exe's
+            icon no matter what the window icon is;
+          * customtkinter re-applies its OWN icon ~200 ms after startup, so we re-assert ours
+            afterwards.
+        """
         from .materials import _base_dir
-        assets=_base_dir()/"assets"
-        try:                                   # Windows: .ico gives the crisp taskbar icon
-            ico=assets/"icon.ico"
-            if ico.exists(): self.iconbitmap(default=str(ico))
-        except Exception: pass
-        try:                                   # cross-platform fallback / Linux
-            png=assets/"icon.png"
-            if png.exists():
+        assets = _base_dir() / "assets"
+        self._icon_ico = assets / "icon.ico"
+        self._icon_png = assets / "icon.png"
+
+        if sys.platform.startswith("win"):          # taskbar identity (must precede the icon)
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    "SandBox.ProfileStudio.IncomingProfileUtility")
+            except Exception as exc:
+                print(f"[icon] AppUserModelID not set: {exc}")
+
+        self._apply_icon()
+        self.after(400, self._apply_icon)           # re-assert after customtkinter's override
+
+    def _apply_icon(self):
+        if sys.platform.startswith("win") and self._icon_ico.exists():
+            try:
+                self.iconbitmap(default=str(self._icon_ico))   # crisp multi-res (16..256px)
+                return
+            except Exception as exc:
+                print(f"[icon] iconbitmap failed: {exc}")      # fall through to the PNG
+        if self._icon_png.exists():
+            try:
                 from PIL import ImageTk
-                self._icon_img=ImageTk.PhotoImage(Image.open(png))
-                self.iconphoto(True, self._icon_img)
-        except Exception: pass
+                self._icon_img = ImageTk.PhotoImage(Image.open(self._icon_png))
+                self.iconphoto(True, self._icon_img)           # Linux / macOS (and fallback)
+                return
+            except Exception as exc:
+                print(f"[icon] iconphoto failed: {exc}")
+        print(f"[icon] no icon assets in {self._icon_ico.parent} — run: python tools/make_icon.py")
 
     def _fit_to_screen(self):
         """Keep the window within the physical screen at ANY Windows display scaling,
