@@ -60,8 +60,10 @@ def compose_preview(bmp_path, nm_per_px, box_w=760, box_h=460, origin=(0.0,0.0),
     """Render the profile into a FIXED-size plot box (box_w x box_h). The profile is scaled
     to fit inside the data area preserving aspect (letterboxed, centered) so the grid panel
     keeps a constant size as the profile changes — only the axis labels update. Returns the
-    composed image and, optionally, the fit scale (composed px per profile px)."""
-    img=Image.open(bmp_path).convert("RGB"); w,h=img.size
+    composed image and, optionally, the fit scale (composed px per profile px).
+    bmp_path may be a path or an already-open PIL image (avoids a disk round-trip)."""
+    img=bmp_path if isinstance(bmp_path,Image.Image) else Image.open(bmp_path)
+    img=img.convert("RGB"); w,h=img.size
     ML,MB,MT,MR=48,30,12,14
     box_w=max(ML+MR+80,int(box_w)); box_h=max(MT+MB+80,int(box_h))
     data_w=box_w-ML-MR; data_h=box_h-MT-MB
@@ -284,6 +286,7 @@ class ProfileStudio(ctk.CTk):
         self._undo=[]; self._redo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
         self._zoom=1.0; self._cx=0.5; self._cy=0.5; self._pv=None; self._pan=None   # zoom/pan view state
         self._tool="move"; self._measure=False; self._prof_wh=None; self._hint_job=None
+        self._full_img=None; self._pan_rendering=False; self._pan_pending=False
         self.uf=ctk.CTkFont(family="Inter",size=13); self.ub=ctk.CTkFont(family="Inter",size=14,weight="bold")
         self.tf=ctk.CTkFont(family="Inter",size=20,weight="bold"); self.mono=ctk.CTkFont(family="JetBrains Mono",size=12)
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
@@ -421,6 +424,7 @@ class ProfileStudio(ctk.CTk):
         self.preview=ctk.CTkLabel(fr,text="",fg_color=NAVY_900); self.preview.pack(expand=True,fill="both",padx=10,pady=10)
         self._pv_target=getattr(self.preview,"_label",self.preview)   # inner widget that shows the image
         for ev,cb in (("<ButtonPress-1>",self._pan_start),("<B1-Motion>",self._pan_move),
+                      ("<ButtonRelease-1>",self._pan_release),
                       ("<Double-Button-1>",lambda e:self._reset_zoom()),
                       ("<MouseWheel>",self._wheel_zoom),("<Button-4>",self._wheel_zoom),("<Button-5>",self._wheel_zoom)):
             self._pv_target.bind(ev,cb,add="+")
@@ -479,6 +483,11 @@ class ProfileStudio(ctk.CTk):
         self._pan=(e.x,e.y,self._cx,self._cy)
         try: self._pv_target.configure(cursor="fleur")
         except Exception: pass
+    def _pan_release(self,e):
+        if self._pan is not None:
+            self._pan=None
+            self._update_cursor()
+            self.render_preview()          # one crisp, full-quality render after the drag
     def _flash_hint(self,msg):
         try:
             self.preview_note.configure(text=msg,text_color=BLUE_L)
@@ -493,7 +502,20 @@ class ProfileStudio(ctk.CTk):
         # drag content with the cursor: one full profile-width of drag == one view (1/z of image)
         self._cx=cx0-(e.x-x0)/max(1,pw2)/z
         self._cy=cy0+(e.y-y0)/max(1,ph2)/z
-        self.render_preview()
+        self._request_pan_render()
+    def _request_pan_render(self):
+        """Coalesce rapid drag events: render at most one frame at a time so motion events
+        can't queue up behind slow renders (that queue is what feels like lag)."""
+        if getattr(self,"_pan_rendering",False):
+            self._pan_pending=True; return
+        self._pan_rendering=True; self._pan_pending=False
+        try:
+            self.render_preview(view_only=True)
+        finally:
+            self._pan_rendering=False
+        if self._pan_pending:                       # coordinates moved on during the render
+            self._pan_pending=False
+            self.after_idle(self._request_pan_render)
     def _nudge_pan(self,dx,dy):
         """Arrow-key panning when zoomed (ignored while typing in a field)."""
         if self._zoom<=1.0: return
@@ -501,7 +523,7 @@ class ProfileStudio(ctk.CTk):
         f=self.focus_get()
         if isinstance(f,(_tk.Entry,_tk.Text)): return          # don't hijack text editing
         self._cx+=dx*0.12/self._zoom; self._cy+=dy*0.12/self._zoom
-        self.render_preview()
+        self.render_preview(view_only=True)
 
     # ---- measure tool: drag a line, read its length in nm ----
     def _select_tool(self, tool):
@@ -894,44 +916,54 @@ class ProfileStudio(ctk.CTk):
                 try: e.configure(state="disabled" if disabled else "normal")
                 except Exception: pass
 
-    def render_preview(self):
+    def render_preview(self, view_only=False):
+        """view_only=True: the profile hasn't changed (panning/zooming) — reuse the cached
+        render and just re-crop/recompose, which is far cheaper than rebuilding geometry."""
         self._job=None
         if self._loading: return
-        self._update_shape_availability()
-        self._update_csv_field_state()
         try:
-            tmp=Path(tempfile.gettempdir())/"_ipu_preview.bmp"; self._render_to(tmp)
-            src=tmp; origin=(0.0,0.0); z=self._zoom
+            tmp=Path(tempfile.gettempdir())/"_ipu_preview.bmp"
+            cached=getattr(self,"_full_img",None)
+            if view_only and cached is not None:
+                im_full=cached                              # skip engine + raster entirely
+            else:
+                self._update_shape_availability()
+                self._update_csv_field_state()
+                self._render_to(tmp)
+                im_full=Image.open(tmp).convert("RGB"); im_full.load()
+                self._full_img=im_full                      # cache for subsequent pans/zooms
+            src_img=im_full; origin=(0.0,0.0); z=self._zoom
             if z>1.0:
-                im=Image.open(tmp); W,H=im.size; half=0.5/z
+                W,H=im_full.size; half=0.5/z
                 cx=min(max(self._cx,half),1-half); cy=min(max(self._cy,half),1-half); self._cx,self._cy=cx,cy
                 fx0,fx1=cx-half,cx+half; fy0,fy1=cy-half,cy+half
                 px0=int(fx0*W); px1=max(px0+1,int(round(fx1*W)))
                 py0=int((1-fy1)*H); py1=max(py0+1,int(round((1-fy0)*H)))   # image y is top-origin
-                crop=Path(tempfile.gettempdir())/"_ipu_crop.bmp"; im.crop((px0,py0,px1,py1)).save(crop)
-                src=crop; origin=(fx0*W*self._last_npp, fy0*H*self._last_npp)
+                src_img=im_full.crop((px0,py0,px1,py1))
+                origin=(fx0*W*self._last_npp, fy0*H*self._last_npp)
             self.preview.update_idletasks()
             _tgt=getattr(self,"_pv_target",self.preview)
             try: _s=ctk.ScalingTracker.get_widget_scaling(self)
             except Exception: _s=1.0
             box_w=_tgt.winfo_width()/_s; box_h=_tgt.winfo_height()/_s
             if box_w<120 or box_h<120: box_w,box_h=760,460          # before first layout
-            disp,fit=compose_preview(src,self._last_npp,box_w=box_w,box_h=box_h,origin=origin,return_scale=True)
+            disp,fit=compose_preview(src_img,self._last_npp,box_w=box_w,box_h=box_h,origin=origin,return_scale=True)
             self._nmpp_disp=self._last_npp/fit                 # real nm per on-screen (composed) pixel
-            srcW,srcH=Image.open(src).size
+            srcW,srcH=src_img.size
             self._prof_wh=(max(1,int(srcW*fit)),max(1,int(srcH*fit)))   # profile's on-screen size (for panning)
             self._base_disp=disp                               # clean image (for the measure overlay)
             self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
             self._pv=(disp.size[0],disp.size[1],z)                        # for pan / measure mapping
-            self._update_legend()
-            mode="" if self._scale() else " (auto)"
-            if z>1.0:
-                tail=f" · {z:.1f}× · drag or arrow keys to move"
-            elif getattr(self,"_tool","move")=="move":
-                tail=" · scroll over the preview to zoom, then drag to move"
-            else:
-                tail=""
-            self.preview_note.configure(text=f"{self._last_npp:.3g} nm/px{mode} · updates live{tail}",text_color=MUT)
+            if not view_only: self._update_legend()   # materials can't change while panning
+            if not view_only:
+                mode="" if self._scale() else " (auto)"
+                if z>1.0:
+                    tail=f" · {z:.1f}× · drag or arrow keys to move"
+                elif getattr(self,"_tool","move")=="move":
+                    tail=" · scroll over the preview to zoom, then drag to move"
+                else:
+                    tail=""
+                self.preview_note.configure(text=f"{self._last_npp:.3g} nm/px{mode} · updates live{tail}",text_color=MUT)
         except Exception as exc:
             self.preview.configure(image=None,text=f"⚠ {exc}",text_color=MUT)
 
