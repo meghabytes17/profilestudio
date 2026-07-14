@@ -976,21 +976,31 @@ class ProfileStudio(ctk.CTk):
                 self._render_to(tmp)
                 im_full=Image.open(tmp).convert("RGB"); im_full.load()
                 self._full_img=im_full                      # cache for subsequent pans/zooms
-            src_img=im_full; origin=(0.0,0.0); z=self._zoom
-            if z>1.0:
-                W,H=im_full.size; half=0.5/z
-                cx=min(max(self._cx,half),1-half); cy=min(max(self._cy,half),1-half); self._cx,self._cy=cx,cy
-                fx0,fx1=cx-half,cx+half; fy0,fy1=cy-half,cy+half
-                px0=int(fx0*W); px1=max(px0+1,int(round(fx1*W)))
-                py0=int((1-fy1)*H); py1=max(py0+1,int(round((1-fy0)*H)))   # image y is top-origin
-                src_img=im_full.crop((px0,py0,px1,py1))
-                origin=(fx0*W*self._last_npp, fy0*H*self._last_npp)
             self.preview.update_idletasks()
             _tgt=getattr(self,"_pv_target",self.preview)
             try: _s=ctk.ScalingTracker.get_widget_scaling(self)
             except Exception: _s=1.0
             box_w=_tgt.winfo_width()/_s; box_h=_tgt.winfo_height()/_s
             if box_w<120 or box_h<120: box_w,box_h=760,460          # before first layout
+            src_img=im_full; origin=(0.0,0.0); z=self._zoom
+            if z>1.0:
+                W,H=im_full.size
+                # Crop a window shaped like the PLOT BOX (not like the profile), so a zoomed
+                # view fills the panel instead of keeping the 1x letterbox bands, and
+                # magnification is exactly z in BOTH axes.
+                ML,MR,MT,MB=48,14,12,30
+                data_w=max(1.0,box_w-ML-MR); data_h=max(1.0,box_h-MT-MB)
+                fit1=min(data_w/W, data_h/H, 6.0)          # the 1x letterbox fit
+                cw=min(float(W), data_w/(fit1*z))          # source px visible, box-shaped
+                ch=min(float(H), data_h/(fit1*z))
+                hx=cw/(2*W); hy=ch/(2*H)                   # half-extents as fractions
+                cx=min(max(self._cx,hx),1-hx); cy=min(max(self._cy,hy),1-hy)
+                self._cx,self._cy=cx,cy
+                fx0,fy0=cx-hx,cy-hy
+                px0=int(fx0*W); px1=max(px0+1,int(round((cx+hx)*W)))
+                py0=int((1-(cy+hy))*H); py1=max(py0+1,int(round((1-fy0)*H)))  # image y is top-origin
+                src_img=im_full.crop((px0,py0,px1,py1))
+                origin=(fx0*W*self._last_npp, fy0*H*self._last_npp)
             disp,fit=compose_preview(src_img,self._last_npp,box_w=box_w,box_h=box_h,origin=origin,return_scale=True)
             self._nmpp_disp=self._last_npp/fit                 # real nm per on-screen (composed) pixel
             srcW,srcH=src_img.size

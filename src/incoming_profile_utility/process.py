@@ -121,20 +121,30 @@ def _corner_cut(shape_list, cx, top, bottom=None):
     corner; taper(angle) slopes the ENTIRE layer wall — angle is the sidewall angle from
     the HORIZONTAL base (90 = vertical, smaller = more sloped, opening wider at the top).
     `bottom` is the layer's bottom y (needed for taper).
+
+    A corner treatment is CLAMPED to the layer's height. A cut deeper than the layer would
+    otherwise be truncated at the layer's bottom edge, leaving an abrupt ledge (a shelf of
+    material jutting into the opening) instead of meeting the wall smoothly.
     """
     cuts = []
+    h = (top - bottom) if bottom is not None else None       # room available in this layer
+
+    def _fit(v):
+        """Limit a treatment's vertical reach to the layer it belongs to."""
+        return v if h is None else min(v, h)
+
     for t in shape_list or []:
         k = t.get("kind")
         if k == "chamfer":
-            s = float(t.get("s", 0) or 0)
+            s = _fit(float(t.get("s", 0) or 0))
             if s > 0: cuts.append(Polygon([(cx, top), (cx + s, top), (cx, top - s)]))
         elif k == "facet":
-            ang = math.radians(float(t.get("angle", 45) or 45)); d = float(t.get("depth", 0) or 0)
+            ang = math.radians(float(t.get("angle", 45) or 45)); d = _fit(float(t.get("depth", 0) or 0))
             if d > 0 and 0 < ang < math.pi / 2:
                 run = d / math.tan(ang)
                 cuts.append(Polygon([(cx, top), (cx + run, top), (cx, top - d)]))
         elif k == "round":
-            r = float(t.get("r", 0) or 0)
+            r = _fit(float(t.get("r", 0) or 0))
             if r > 0:
                 cuts.append(box(cx, top - r, cx + r, top).difference(Point(cx + r, top - r).buffer(r, quad_segs=32)))
         elif k == "taper":

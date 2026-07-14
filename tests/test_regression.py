@@ -435,3 +435,54 @@ def test_export_polygons_svg_and_json(tmp_path):
     j = json.loads(js.read_text())
     assert j["units"] == "nm" and j["cell"]["width"] == 220.0
     assert all(len(part["exterior"]) >= 4 for parts in data.values() for part in parts)
+
+
+def _wall_edges(st, pal, tmp, npp=0.25):
+    """x of the opening's left edge on every row (None where the row has no opening)."""
+    import cv2
+    from incoming_profile_utility.process import render_regions
+    render_regions(st, pal, tmp, npp)
+    im = cv2.imread(str(tmp))
+    H, W, _ = im.shape
+    out = []
+    for y in range(H):
+        xs = [x for x in range(W) if tuple(im[y][x]) == (0, 0, 0)]
+        out.append(min(xs) if xs else None)
+    return out, H
+
+
+@pytest.mark.parametrize("treatment", [
+    dict(kind="round", r=90),
+    dict(kind="chamfer", s=90),
+    dict(kind="facet", angle=45, depth=90),
+])
+def test_treatment_larger_than_layer_leaves_no_ledge(tmp_path, treatment):
+    """A corner treatment bigger than the layer it sits on must NOT leave a shelf of material
+    jutting into the opening. The cut is clamped to the layer, so the wall stays continuous
+    across the layer boundary (reported as 'overlap' in the preview)."""
+    from incoming_profile_utility.materials import load_palette
+    pal = load_palette()
+    t1, t2, npp = 60, 140, 0.25                       # treatment (90) is bigger than layer 1 (60)
+    base = build_base(dict(material_layers=[dict(material="hardmask", thickness=t1, shape=[treatment]),
+                                            dict(material="hardmask", thickness=t2)],
+                           pitch=200, space=80, top_vacuum=0, opening_depth=t1 + t2,
+                           opening_bottom_radius=0))
+    st = evaluate(base, [])
+    edges, H = _wall_edges(st, pal, tmp_path / "w.bmp", npp)
+    b = int(t1 / npp)                                  # row of the layer-1/layer-2 boundary
+    above, below = edges[b - 2], edges[b + 2]
+    assert above is not None and below is not None
+    assert abs(above - below) <= 2, (
+        f"ledge at the layer boundary: wall jumps {above} -> {below} px")
+
+
+def test_treatment_within_layer_still_shapes_the_corner():
+    """Clamping must not neuter a treatment that legitimately fits inside its layer."""
+    plain = build_base(dict(material_layers=[dict(material="hardmask", thickness=100)],
+                            pitch=200, space=80, top_vacuum=0, opening_depth=100))
+    shaped = build_base(dict(material_layers=[dict(material="hardmask", thickness=100,
+                                                   shape=[dict(kind="round", r=40)])],
+                             pitch=200, space=80, top_vacuum=0, opening_depth=100))
+    a = [g for m, g in plain.regions if m == "hardmask"][0]
+    b = [g for m, g in shaped.regions if m == "hardmask"][0]
+    assert b.area < a.area - 1.0        # the corner really was cut away
