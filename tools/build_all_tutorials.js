@@ -75,11 +75,12 @@ const doc1=D([
   sect("Working in the preview"),
   bullet([B("Zoom"),T(" — scroll the wheel over the preview (or use the Zoom slider). Double-click or "),B("Reset"),T(" returns to the full view.")]),
   bullet([B("Move"),T(" — once zoomed in, the cursor becomes a move cursor: drag, or use the arrow keys, to reposition. (At 1x there is nothing to move — the whole profile is already in view.)")]),
-  bullet([B("Measure"),T(" — switch to the Measure tool and drag a line across any feature to read its length in nm. Switch back to "),B("Move"),T(" to pan again.")]),
+  bullet([B("Measure"),T(" — switch to the Measure tool and drag a line across any feature to read its length in nm. Set "),B("Snap"),T(" to Edge or Vertex to lock the endpoints onto material boundaries. Switch back to "),B("Move"),T(" to pan again.")]),
   bullet([B("Smoothing"),T(" (Off / 2x / 4x / 8x) de-jags curved walls. It never blends colours: the .bmp always contains exactly one colour per material.")]),
   bullet([B("Save .bmp…"),T(" exports the picture; "),B("Polygons…"),T(" exports the profile as editable vector shapes (SVG) plus exact nm coordinates (JSON).")]),
   gap(),
   tipsBox([
+    "The window starts maximised and is resizable — drag it larger and the preview grows with it.",
     "The plot grid keeps a fixed size — only the axis numbers change as you edit.",
     "The shape button on a layer row is enabled only for layers the opening actually reaches.",
     "Toolbar Save stores the whole project; Save .bmp exports just the picture.",

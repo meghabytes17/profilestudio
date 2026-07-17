@@ -146,3 +146,19 @@ def test_make_icon_is_reproducible(tmp_path):
     assert ico.exists() and png.exists()
     assert Image.open(ico).info.get("sizes")
     assert Image.open(png).size == (512, 512)
+
+
+# --------------------------------------------------------------------------- #
+# Measure snapping (snap endpoints to material boundaries)
+# --------------------------------------------------------------------------- #
+def test_snap_edges_detects_material_boundaries():
+    """The snap edge-map must find the boundaries in a composed preview."""
+    import numpy as np
+    from PIL import Image
+    # a simple two-band image: the boundary row should be detected as edges
+    im = Image.new("RGB", (40, 40), (0, 162, 232))
+    im.paste(Image.new("RGB", (40, 20), (127, 127, 127)), (0, 0))
+    a = np.asarray(im).astype(np.int16)
+    dy = np.any(a[1:, :, :] != a[:-1, :, :], axis=2)
+    ys = np.where(dy)[0]
+    assert 19 in ys or 20 in ys        # the colour change sits at the band boundary

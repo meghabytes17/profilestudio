@@ -173,32 +173,40 @@ class OpRow:
     def __init__(self, host, op_label, material, num, aniso=1.0):
         self.host=host; app=host.app
         self.frame=ctk.CTkFrame(host.container, fg_color=NAVY_900, corner_radius=8, border_width=1, border_color=NAVY_700)
+        # --- top line: badge, info, op-type menu, and the reorder/remove buttons ---
+        top=ctk.CTkFrame(self.frame, fg_color="transparent"); top.pack(fill="x", padx=2, pady=(2,0))
         for sym,cmd in (("✕",lambda:host.remove(self)),("↓",lambda:host.move(self,1)),("↑",lambda:host.move(self,-1))):
-            ctk.CTkButton(self.frame, text=sym, width=24, font=app.uf, fg_color="transparent", border_width=1,
+            ctk.CTkButton(top, text=sym, width=26, font=app.uf, fg_color="transparent", border_width=1,
                           border_color=NAVY_700, text_color=SOFT, hover_color=NAVY_700, command=cmd).pack(side="right", padx=1)
-        self.badge=ctk.CTkFrame(self.frame, fg_color=BLUE, corner_radius=999, width=20, height=20); self.badge.pack(side="left", padx=(10,6), pady=8); self.badge.pack_propagate(False)
+        self.badge=ctk.CTkFrame(top, fg_color=BLUE, corner_radius=999, width=20, height=20); self.badge.pack(side="left", padx=(8,6), pady=8); self.badge.pack_propagate(False)
         self.badge_lbl=ctk.CTkLabel(self.badge, text="1", font=app.eb, text_color=ON); self.badge_lbl.pack(expand=True)
-        info=ctk.CTkLabel(self.frame, text="ⓘ", font=app.uf, text_color=BLUE_L, cursor="hand2"); info.pack(side="left", padx=(0,4)); Tooltip(info, OP_INFO)
-        self.optype=ctk.CTkOptionMenu(self.frame, values=OP_LABELS, width=142, font=app.uf, fg_color=NAVY_800,
+        info=ctk.CTkLabel(top, text="ⓘ", font=app.uf, text_color=BLUE_L, cursor="hand2"); info.pack(side="left", padx=(0,4)); Tooltip(info, OP_INFO)
+        self.optype=ctk.CTkOptionMenu(top, values=OP_LABELS, width=150, font=app.uf, fg_color=NAVY_800,
                      button_color=BLUE, button_hover_color=BLUE_L, text_color=ON, command=self._on_type)
-        self.optype.set(op_label); self.optype.pack(side="left", padx=4, pady=8)
-        self.mat=ctk.CTkOptionMenu(self.frame, values=app.palette.names(), width=100, font=app.uf, fg_color=NAVY_800,
+        self.optype.set(op_label); self.optype.pack(side="left", padx=4, pady=6)
+        # --- bottom line: material + thickness/aniso, which used to get pushed off-screen ---
+        bot=ctk.CTkFrame(self.frame, fg_color="transparent"); bot.pack(fill="x", padx=2, pady=(0,4))
+        ctk.CTkLabel(bot, text="", width=30, fg_color="transparent").pack(side="left")   # indent under the badge
+        self.mat=ctk.CTkOptionMenu(bot, values=app.palette.names(), width=118, font=app.uf, fg_color=NAVY_800,
                      button_color=BLUE, button_hover_color=BLUE_L, text_color=ON, command=lambda _v: app._schedule_render())
-        self.mat.set(material); self.mat.pack(side="left", padx=2, pady=8)
-        self.num=ctk.CTkEntry(self.frame, width=44, font=app.mono, fg_color=NAVY_800, border_color=NAVY_700, text_color=ON)
-        self.num.insert(0,str(num)); self.num.bind("<KeyRelease>", app._schedule_render); self.num.pack(side="left", padx=(6,2))
-        ctk.CTkLabel(self.frame, text="nm", font=app.eb, text_color=MUT).pack(side="left")
-        self.aniso_lbl=ctk.CTkLabel(self.frame, text="aniso", font=app.eb, text_color=MUT)
-        self.aniso=ctk.CTkEntry(self.frame, width=40, font=app.mono, fg_color=NAVY_800, border_color=NAVY_700, text_color=ON)
+        self.mat.set(material); self.mat.pack(side="left", padx=2, pady=6)
+        self.num=ctk.CTkEntry(bot, width=56, font=app.mono, fg_color=NAVY_800, border_color=NAVY_700, text_color=ON)
+        self.num.insert(0,str(num)); self.num.bind("<KeyRelease>", app._schedule_render); self.num.pack(side="left", padx=(8,2))
+        self.num_unit=ctk.CTkLabel(bot, text="nm", font=app.eb, text_color=MUT); self.num_unit.pack(side="left")
+        self.aniso_lbl=ctk.CTkLabel(bot, text="aniso", font=app.eb, text_color=MUT)
+        self.aniso=ctk.CTkEntry(bot, width=46, font=app.mono, fg_color=NAVY_800, border_color=NAVY_700, text_color=ON)
         self.aniso.insert(0,str(aniso)); self.aniso.bind("<KeyRelease>", app._schedule_render)
+        self._botrow=bot
         self._sync()
     def _on_type(self,_v): self._sync(); self.host.app._schedule_render()
     def _sync(self):
         lbl=self.optype.get(); names=self.host.app._op_material_choices()
         if lbl=="Planarize":
             self.mat.pack_forget()
+            self.num_unit.configure(text="nm  (height)")
         else:
-            self.mat.pack(side="left", padx=2, pady=8, before=self.num)
+            self.num_unit.configure(text="nm")
+            self.mat.pack(side="left", padx=2, pady=6, before=self.num)
             if lbl in ("Etch · isotropic","Etch · anisotropic"):
                 vals=["(any)"]+names   # etch acts on materials already present
                 self.mat.configure(state="normal", values=vals)
@@ -382,6 +390,18 @@ class ProfileStudio(ctk.CTk):
                 print(f"[icon] iconphoto failed: {exc}")
         print(f"[icon] no icon assets in {self._icon_ico.parent} — run: python tools/make_icon.py")
 
+    def _on_preview_resize(self, e):
+        """Redraw the plot to the new panel size (debounced), so making the window bigger
+        actually enlarges the viewing area. Uses the cached render — no engine work."""
+        if self._loading or getattr(self,"_full_img",None) is None: return
+        wh=(e.width, e.height)
+        if wh==getattr(self,"_last_pv_wh",None): return
+        self._last_pv_wh=wh
+        if getattr(self,"_resize_job",None):
+            try: self.after_cancel(self._resize_job)
+            except Exception: pass
+        self._resize_job=self.after(120, lambda: self.render_preview(view_only=True))
+
     def _fit_to_screen(self):
         """Keep the window within the physical screen at ANY Windows display scaling,
         so no panel (e.g. the process stack) ends up off-screen."""
@@ -391,8 +411,14 @@ class ProfileStudio(ctk.CTk):
             except Exception: wsf=1.0
             max_w=int(sw/wsf)-40; max_h=int(sh/wsf)-90
             w=min(1360,max_w); h=min(900,max_h)
-            self.geometry(f"{w}x{h}")
-            self.minsize(min(900,w), min(560,h))
+            self.geometry(f"{w}x{h}")                     # sensible size if un-maximized
+            self.minsize(min(820,max_w), min(540,max_h))
+            self.resizable(True, True)
+            try:                                         # start maximized (fills the screen)
+                self.state("zoomed")                     # Windows / most Linux WMs
+            except Exception:
+                try: self.attributes("-zoomed", True)    # some X11 WMs
+                except Exception: pass
         except Exception:
             pass
 
@@ -467,6 +493,7 @@ class ProfileStudio(ctk.CTk):
         fr=ctk.CTkFrame(card,fg_color=NAVY_900,corner_radius=10); fr.pack(side="top",expand=True,fill="both",padx=18,pady=6)
         self.preview=ctk.CTkLabel(fr,text="",fg_color=NAVY_900); self.preview.pack(expand=True,fill="both",padx=10,pady=10)
         self._pv_target=getattr(self.preview,"_label",self.preview)   # inner widget that shows the image
+        self.preview.bind("<Configure>", self._on_preview_resize, add="+")   # grow the plot with the window
         for ev,cb in (("<ButtonPress-1>",self._pan_start),("<B1-Motion>",self._pan_move),
                       ("<ButtonRelease-1>",self._pan_release),
                       ("<Double-Button-1>",lambda e:self._reset_zoom()),
@@ -502,6 +529,11 @@ class ProfileStudio(ctk.CTk):
                       border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700)
         self.measure_btn.grid(row=0,column=4,padx=(6,0))
         Tooltip(self.measure_btn,"Measure: drag a line on the preview to read its length in nm. Works at any zoom.")
+        self._snap_mode=ctk.StringVar(value="Edge")
+        self.snap_menu=ctk.CTkOptionMenu(zb,values=["Off","Edge","Vertex"],variable=self._snap_mode,width=92,font=self.eb,
+                      fg_color=NAVY_800,button_color=BLUE,button_hover_color=BLUE_L,text_color=ON)
+        self.snap_menu.grid(row=0,column=5,padx=(6,0))
+        Tooltip(self.snap_menu,"Measure snapping: Off = free cursor; Edge = snap endpoints to the nearest material boundary; Vertex = prefer corners. Keeps measurements aligned to the geometry.")
         self.move_btn.configure(fg_color=GREEN,text_color=GREEN_INK,border_color=GREEN)   # Move active by default
         Tooltip(self.zoom_slider,"Zoom the preview. You can also scroll the wheel over the preview to zoom, drag to pan, and double-click to reset.")
 
@@ -597,17 +629,23 @@ class ProfileStudio(ctk.CTk):
         pw,ph,_=self._pv
         try: s=ctk.ScalingTracker.get_widget_scaling(self)
         except Exception: s=1.0
-        tgt=getattr(self,"_pv_target",self.preview)
-        lw=tgt.winfo_width(); lh=tgt.winfo_height()            # inner label that holds the image
+        tgt=self.preview                                       # same widget the plot is sized from
+        lw=tgt.winfo_width(); lh=tgt.winfo_height()
         dispw,disph=pw*s,ph*s                                  # CTkImage renders at size*scaling
         ox=max(0,(lw-dispw)/2); oy=max(0,(lh-disph)/2)
+        # event x/y may be relative to the inner label; shift by its offset within the CTkLabel
+        try:
+            inner=getattr(self,"_pv_target",tgt)
+            if inner is not tgt and e.widget is inner:
+                ox-=inner.winfo_x(); oy-=inner.winfo_y()
+        except Exception: pass
         x=(e.x-ox)/s; y=(e.y-oy)/s                             # -> composed (unscaled) coords
         return (min(max(x,0),pw), min(max(y,0),ph))
     def _meas_start_cb(self,e):
-        if self._pv: self._meas_start=self._to_disp(e)
+        if self._pv: self._meas_start=self._snap(self._to_disp(e))
     def _meas_move_cb(self,e):
         if not self._meas_start or getattr(self,"_base_disp",None) is None or not self._pv: return
-        p0=self._meas_start; p1=self._to_disp(e)
+        p0=self._meas_start; p1=self._snap(self._to_disp(e))
         im=self._base_disp.copy(); d=ImageDraw.Draw(im)
         d.line([p0,p1],fill=(79,208,147),width=2)
         for p in (p0,p1): d.ellipse([p[0]-3,p[1]-3,p[0]+3,p[1]+3],fill=(79,208,147))
@@ -615,6 +653,41 @@ class ProfileStudio(ctk.CTk):
         d.text((min(p0[0],p1[0])+6, min(p0[1],p1[1])-12), f"{dist:.1f} nm",
                fill=(230,240,255), font=ImageFont.load_default())
         self.preview.configure(image=ctk.CTkImage(light_image=im,dark_image=im,size=im.size))
+
+    def _build_snap_edges(self):
+        """Edge map of the composed image (material boundaries incl. the opening) so the
+        measure tool can snap to them. Cached per render; recomputed when the image changes."""
+        base=getattr(self,"_base_disp",None)
+        if base is None: self._snap_edges=None; return
+        if getattr(self,"_snap_for",None) is base: return          # already built for this image
+        import numpy as np
+        a=np.asarray(base.convert("RGB")).astype(np.int16)
+        # a pixel is an edge if it differs from its right or lower neighbour (colour change)
+        dx=np.any(a[:,1:,:]!=a[:,:-1,:],axis=2); dy=np.any(a[1:,:,:]!=a[:-1,:,:],axis=2)
+        edge=np.zeros(a.shape[:2],bool)
+        edge[:,:-1]|=dx; edge[:,1:]|=dx; edge[:-1,:]|=dy; edge[1:,:]|=dy
+        ys,xs=np.where(edge)
+        self._snap_pts=np.column_stack([xs,ys]).astype(np.float32) if len(xs) else None
+        self._snap_for=base
+
+    def _snap(self,p):
+        """Snap a composed-pixel point to the nearest material boundary/vertex when enabled."""
+        mode=getattr(self,"_snap_mode",None)
+        if not mode or mode.get()=="Off": return p
+        self._build_snap_edges()
+        pts=getattr(self,"_snap_pts",None)
+        if pts is None or not len(pts): return p
+        import numpy as np
+        px,py=p; d2=(pts[:,0]-px)**2+(pts[:,1]-py)**2
+        i=int(np.argmin(d2))
+        if d2[i] > (18.0**2): return p                             # too far -> leave the cursor free
+        sx,sy=float(pts[i,0]),float(pts[i,1])
+        if mode.get()=="Vertex":                                   # prefer corners: a lone hi-curvature edge pt
+            near=(np.abs(pts[:,0]-sx)<=2)&(np.abs(pts[:,1]-sy)<=2)
+            if near.sum()>=3:                                      # neighbourhood looks like a corner
+                return (sx,sy)
+            # otherwise fall through and still snap to the closest edge point
+        return (sx,sy)
 
     def _footer(self):
         ctk.CTkLabel(self,text="Symmetric · 24-bit BMP · 2D-polygon process model",font=self.eb,text_color=MUT).grid(row=3,column=0,sticky="w",padx=22,pady=(0,10))
@@ -977,7 +1050,7 @@ class ProfileStudio(ctk.CTk):
                 im_full=Image.open(tmp).convert("RGB"); im_full.load()
                 self._full_img=im_full                      # cache for subsequent pans/zooms
             self.preview.update_idletasks()
-            _tgt=getattr(self,"_pv_target",self.preview)
+            _tgt=self.preview                            # the CTkLabel expands with the window
             try: _s=ctk.ScalingTracker.get_widget_scaling(self)
             except Exception: _s=1.0
             box_w=_tgt.winfo_width()/_s; box_h=_tgt.winfo_height()/_s
