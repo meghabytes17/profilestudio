@@ -134,26 +134,31 @@ class MaterialLayerRow:
     def __init__(self, app, material, thickness, shape=None):
         self.app=app; self.shape=list(shape) if shape else []
         self.frame=ctk.CTkFrame(app.matstack_container, fg_color=NAVY_900, corner_radius=8, border_width=1, border_color=NAVY_700)
-        self.grip=ctk.CTkLabel(self.frame, text="⠿", font=app.ub, text_color=MUT, cursor="fleur", width=16)
+        # --- top line: grip, badge, swatch, material menu, reorder/remove buttons ---
+        top=ctk.CTkFrame(self.frame, fg_color="transparent"); top.pack(fill="x", padx=2, pady=(2,0))
+        self.grip=ctk.CTkLabel(top, text="⠿", font=app.ub, text_color=MUT, cursor="fleur", width=16)
         self.grip.pack(side="left", padx=(8,2))
         self.grip.bind("<ButtonPress-1>", lambda e: app._drag_start(self))
         self.grip.bind("<ButtonRelease-1>", lambda e: app._drag_drop(self))
-        self.badge=ctk.CTkFrame(self.frame, fg_color=BLUE, corner_radius=999, width=20, height=20); self.badge.pack(side="left", padx=(2,6), pady=7); self.badge.pack_propagate(False)
+        self.badge=ctk.CTkFrame(top, fg_color=BLUE, corner_radius=999, width=20, height=20); self.badge.pack(side="left", padx=(2,6), pady=7); self.badge.pack_propagate(False)
         self.badge_lbl=ctk.CTkLabel(self.badge, text="1", font=app.eb, text_color=ON); self.badge_lbl.pack(expand=True)
-        self.sw=ctk.CTkFrame(self.frame, width=16, height=16, corner_radius=3, fg_color=app.palette.hex(material), border_width=1, border_color=NAVY_700)
+        self.sw=ctk.CTkFrame(top, width=16, height=16, corner_radius=3, fg_color=app.palette.hex(material), border_width=1, border_color=NAVY_700)
         self.sw.pack(side="left", padx=(0,6)); self.sw.pack_propagate(False)
-        self.mat=ctk.CTkOptionMenu(self.frame, values=app.palette.names(), width=132, font=app.uf, fg_color=NAVY_800,
+        for sym,cmd in (("✕",lambda:app._remove_matlayer(self)),("↓",lambda:app._move_matlayer(self,1)),("↑",lambda:app._move_matlayer(self,-1))):
+            ctk.CTkButton(top, text=sym, width=26, font=app.uf, fg_color="transparent", border_width=1,
+                          border_color=NAVY_700, text_color=SOFT, hover_color=NAVY_700, command=cmd).pack(side="right", padx=1)
+        self.mat=ctk.CTkOptionMenu(top, values=app.palette.names(), width=150, font=app.uf, fg_color=NAVY_800,
                      button_color=BLUE, button_hover_color=BLUE_L, text_color=ON, command=self._on_mat)
         self.mat.set(material); self.mat.pack(side="left", padx=(0,6), pady=7)
-        self.th=ctk.CTkEntry(self.frame, width=50, font=app.mono, fg_color=NAVY_800, border_color=NAVY_700, text_color=ON)
+        # --- bottom line: thickness + shape button, which used to get pushed off-screen ---
+        bot=ctk.CTkFrame(self.frame, fg_color="transparent"); bot.pack(fill="x", padx=2, pady=(0,4))
+        ctk.CTkLabel(bot, text="", width=26, fg_color="transparent").pack(side="left")   # indent under the badge
+        self.th=ctk.CTkEntry(bot, width=64, font=app.mono, fg_color=NAVY_800, border_color=NAVY_700, text_color=ON)
         self.th.insert(0,str(thickness)); self.th.bind("<KeyRelease>", app._schedule_render); self.th.pack(side="left", padx=(0,2))
-        ctk.CTkLabel(self.frame, text="nm", font=app.eb, text_color=MUT).pack(side="left")
-        for sym,cmd in (("✕",lambda:app._remove_matlayer(self)),("↓",lambda:app._move_matlayer(self,1)),("↑",lambda:app._move_matlayer(self,-1))):
-            ctk.CTkButton(self.frame, text=sym, width=24, font=app.uf, fg_color="transparent", border_width=1,
-                          border_color=NAVY_700, text_color=SOFT, hover_color=NAVY_700, command=cmd).pack(side="right", padx=1)
-        self.shape_btn=ctk.CTkButton(self.frame, text="◐ shape", width=64, font=app.eb, fg_color="transparent", border_width=1,
+        ctk.CTkLabel(bot, text="nm", font=app.eb, text_color=MUT).pack(side="left", padx=(0,8))
+        self.shape_btn=ctk.CTkButton(bot, text="◐ shape", width=96, font=app.eb, fg_color="transparent", border_width=1,
                      border_color=BLUE_L, text_color=SOFT, hover_color=NAVY_700, command=lambda: app._edit_shape(self))
-        self.shape_btn.pack(side="right", padx=(4,2)); self._refresh_shape_btn()
+        self.shape_btn.pack(side="left", padx=(4,2)); self._refresh_shape_btn()
         Tooltip(self.shape_btn, "Shape this layer's opening. Add one or MORE treatments (they stack): round / "
                                 "chamfer / facet the top corners, and/or taper the sidewall (taper angle = "
                                 "sidewall angle from the horizontal base, 90° = vertical).")
