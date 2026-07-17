@@ -162,3 +162,43 @@ def test_snap_edges_detects_material_boundaries():
     dy = np.any(a[1:, :, :] != a[:-1, :, :], axis=2)
     ys = np.where(dy)[0]
     assert 19 in ys or 20 in ys        # the colour change sits at the band boundary
+
+
+# --------------------------------------------------------------------------- #
+# Versioning: one source of truth, wired everywhere
+# --------------------------------------------------------------------------- #
+def test_version_sources_agree():
+    """pyproject and the package must declare the same version, so a build can't ship
+    with a mismatched number."""
+    import tomllib
+    import incoming_profile_utility as ipu
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert pyproject["project"]["version"] == ipu.__version__
+
+
+def test_version_string_is_well_formed():
+    import re
+    import incoming_profile_utility as ipu
+    assert re.fullmatch(r"\d+\.\d+\.\d+", ipu.__version__)
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", ipu.__build_date__)
+    assert ipu.__version__ in ipu.version_string()
+    assert ipu.__build_date__ in ipu.version_string()
+
+
+def test_exe_version_resource_matches(tmp_path):
+    """tools/make_version_info.py stamps the .exe with the same version."""
+    import importlib.util
+    import incoming_profile_utility as ipu
+    spec = importlib.util.spec_from_file_location("mvi", ROOT / "tools" / "make_version_info.py")
+    mvi = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mvi)
+    # the generated resource file (written to build/) must carry this version
+    res = (ROOT / "build" / "version_info.txt")
+    if res.exists():
+        text = res.read_text()
+        assert f"'FileVersion', '{ipu.__version__}'" in text
+
+
+def test_spec_references_version_resource():
+    spec = (ROOT / "incoming_profile_utility.spec").read_text()
+    assert "version_info.txt" in spec

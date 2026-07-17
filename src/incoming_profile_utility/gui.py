@@ -8,6 +8,8 @@ import tkinter as tk
 from pathlib import Path
 
 import customtkinter as ctk
+
+from . import short_version, version_string
 from PIL import Image, ImageDraw, ImageFont
 
 from .materials import load_palette
@@ -289,7 +291,8 @@ class ProfileStudio(ctk.CTk):
     def __init__(self):
         super().__init__()
         ctk.set_appearance_mode("dark"); self.configure(fg_color=NAVY)
-        self.title("Incoming Profile Utility"); self.geometry("1360x900")
+        self._base_title=f"Incoming Profile Utility  {short_version()}"
+        self.title(self._base_title); self.geometry("1360x900")
         self._set_app_icon()
         self.palette=load_palette(); self.opening_trace=None
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
@@ -317,7 +320,13 @@ class ProfileStudio(ctk.CTk):
         b=ctk.CTkFrame(h,fg_color="transparent"); b.grid(row=0,column=0,sticky="w",padx=22,pady=10)
         ctk.CTkLabel(b,text="SANDBOX · PROFILE STUDIO",font=self.hf,text_color=ON).pack(anchor="w")
         pill=ctk.CTkFrame(h,fg_color=GREEN,corner_radius=999); pill.grid(row=0,column=1,sticky="e",padx=22)
-        ctk.CTkLabel(pill,text="v1",font=self.mono,text_color=GREEN_INK).pack(padx=12,pady=3)
+        from . import short_version, version_string
+        vlbl=ctk.CTkLabel(pill,text=short_version(),font=self.mono,text_color=GREEN_INK); vlbl.pack(padx=12,pady=3)
+        Tooltip(vlbl, version_string())
+
+    def _set_title(self, suffix=""):
+        base=getattr(self,"_base_title","Incoming Profile Utility")
+        self.title(f"{base} — {suffix}" if suffix else base)
 
     def _card(self,parent,title):
         c=ctk.CTkFrame(parent,fg_color=NAVY_800,corner_radius=12,border_width=1,border_color=NAVY_700)
@@ -761,7 +770,7 @@ class ProfileStudio(ctk.CTk):
               filetypes=[("Profile project","*.json")], initialfile="profile.json")
         if not path: return
         with open(path,"w") as f: json.dump(self._snapshot(), f, indent=2)
-        self.title(f"Incoming Profile Utility — saved {Path(path).name}")
+        self._set_title(f"saved {Path(path).name}")
     def _open_project(self):
         from tkinter import filedialog
         import json
@@ -771,9 +780,9 @@ class ProfileStudio(ctk.CTk):
             with open(path) as f: snap=json.load(f)
             self._load_state(snap)
             self._undo.clear(); self._redo.clear()      # opened state is the baseline; nothing to undo into
-            self.title(f"Incoming Profile Utility — {Path(path).name}")
+            self._set_title(Path(path).name)
         except Exception as exc:
-            self.title(f"Incoming Profile Utility — ⚠ open failed: {exc}")
+            self._set_title(f"⚠ open failed: {exc}")
     def _new_project(self):
         self._reset(capture=False)                       # blank canvas
         self._undo.clear(); self._redo.clear()           # fresh project: no history
@@ -1099,7 +1108,7 @@ class ProfileStudio(ctk.CTk):
         path=filedialog.asksaveasfilename(defaultextension=".bmp",filetypes=[("Bitmap","*.bmp")],initialfile="profile.bmp")
         if not path: return
         self._render_to(path, for_save=True)   # full-resolution, no anti-aliasing
-        self.title(f"Incoming Profile Utility — saved {Path(path).name}")
+        self._set_title(f"saved {Path(path).name}")
 
     def export_polygons(self):
         from tkinter import filedialog, messagebox
@@ -1115,7 +1124,7 @@ class ProfileStudio(ctk.CTk):
         messagebox.showinfo("Polygons exported",
             f"{Path(stem).name}.svg — editable vertices (Inkscape / Illustrator)\n"
             f"{Path(stem).name}.json — exact nm coordinates per material")
-        self.title(f"Incoming Profile Utility — exported {Path(stem).name}.svg")
+        self._set_title(f"exported {Path(stem).name}.svg")
 
 
 def launch():

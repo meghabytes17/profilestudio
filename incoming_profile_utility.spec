@@ -40,4 +40,5 @@ exe = EXE(
     console=False,               # GUI app: no console window
     disable_windowed_traceback=False,
     icon="assets/icon.ico",      # SandBox-branded Profile Studio icon
+    version="build/version_info.txt",   # .exe Properties -> Details (run tools/make_version_info.py)
 )
