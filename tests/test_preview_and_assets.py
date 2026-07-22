@@ -202,3 +202,33 @@ def test_exe_version_resource_matches(tmp_path):
 def test_spec_references_version_resource():
     spec = (ROOT / "incoming_profile_utility.spec").read_text()
     assert "version_info.txt" in spec
+
+
+# --------------------------------------------------------------------------- #
+# Hex colour entry for new materials
+# --------------------------------------------------------------------------- #
+def test_parse_hex_accepts_common_forms():
+    from incoming_profile_utility.gui import ProfileStudio
+    f = ProfileStudio._parse_hex
+    assert f("#4FD093") == (79, 208, 147)
+    assert f("4fd093") == (79, 208, 147)      # no leading hash
+    assert f("#4d9") == (68, 221, 153)        # short form expands
+    assert f("  #FFFFFF ") == (255, 255, 255) # whitespace tolerated
+    assert f("000000") == (0, 0, 0)
+
+
+def test_parse_hex_rejects_bad_input():
+    from incoming_profile_utility.gui import ProfileStudio
+    f = ProfileStudio._parse_hex
+    for bad in ("", "#12", "#12345", "xyzxyz", "gggggg", None):
+        assert f(bad) is None
+
+
+def test_parse_hex_roundtrips_palette_hex():
+    """A colour parsed from hex, added to the palette, reads back as the same hex."""
+    from incoming_profile_utility.gui import ProfileStudio
+    from incoming_profile_utility.materials import load_palette
+    rgb = ProfileStudio._parse_hex("#3C64B4")
+    pal = load_palette()
+    pal.add("cobalt_test", rgb, label="Cobalt")
+    assert pal.hex("cobalt_test") == "#3C64B4"

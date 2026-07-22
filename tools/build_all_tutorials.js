@@ -50,7 +50,7 @@ function tipsBox(lines){
 }
 const PAGE={size:{width:12240,height:15840},margin:{top:1000,bottom:800,left:1100,right:1100}};
 const D=(children)=>new Document({sections:[{properties:{page:PAGE},children}]});
-const IMG="/home/claude/tut/";
+const IMG=(process.env.IPU_IMG||"docs/tutorial_img/");   // run tools/gen_tutorial_images.py first
 
 // ---- Tutorial 1 --------------------------------------------------------------
 const doc1=D([
@@ -84,7 +84,7 @@ const doc1=D([
   tipsBox([
     "The version pill (top-right) and title bar show your build — quote it when reporting an issue.",
     "The window starts maximised and is resizable; the preview grows with it. The plot grid itself stays a fixed size — only the axis numbers change.",
-    "Toolbar Save stores the whole project; Save .bmp exports just the picture. Add your own colours with “＋ New material (color)”.",
+    "Toolbar Save stores the whole project; Save .bmp exports just the picture. Add your own colours with “＋ New material (color)” — pick a swatch or type a hex code.",
   ]),
 ]);
 

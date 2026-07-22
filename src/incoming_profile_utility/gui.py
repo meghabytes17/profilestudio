@@ -896,25 +896,55 @@ class ProfileStudio(ctk.CTk):
                       border_width=1,border_color=GREEN,text_color=GREEN,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
         ctk.CTkButton(bar,text="Done",command=dlg.destroy,font=self.ub,width=90,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).pack(side="left",padx=2)
 
+    @staticmethod
+    def _parse_hex(text):
+        """Accept '#4FD093', '4fd093', '#4d9' (short form) -> (r,g,b), or None if invalid."""
+        s=(text or "").strip().lstrip("#")
+        if len(s)==3: s="".join(c*2 for c in s)          # #4d9 -> #44dd99
+        if len(s)!=6: return None
+        try: return tuple(int(s[i:i+2],16) for i in (0,2,4))
+        except ValueError: return None
+
     def _add_material(self):
         from tkinter.colorchooser import askcolor
-        dlg=ctk.CTkToplevel(self); dlg.title("Add material"); dlg.geometry("340x210"); dlg.configure(fg_color=NAVY_800); dlg.transient(self)
+        dlg=ctk.CTkToplevel(self); dlg.title("Add material"); dlg.geometry("360x250"); dlg.configure(fg_color=NAVY_800); dlg.transient(self)
         ctk.CTkLabel(dlg,text="New material",font=self.ub,text_color=ON).pack(anchor="w",padx=16,pady=(14,6))
         name_e=ctk.CTkEntry(dlg,placeholder_text="name (e.g. tungsten)",font=self.uf,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON); name_e.pack(fill="x",padx=16,pady=6)
-        chosen={"rgb":(79,208,147)}; sw=ctk.CTkFrame(dlg,fg_color="#4FD093",width=40,height=24,corner_radius=6); sw.pack(side="left",padx=(16,8),pady=10)
+        chosen={"rgb":(79,208,147)}
+
+        row=ctk.CTkFrame(dlg,fg_color="transparent"); row.pack(fill="x",padx=16,pady=(4,2))
+        sw=ctk.CTkFrame(row,fg_color="#4FD093",width=40,height=28,corner_radius=6,border_width=1,border_color=NAVY_700); sw.pack(side="left",padx=(0,10)); sw.pack_propagate(False)
+        ctk.CTkLabel(row,text="Hex",font=self.eb,text_color=MUT).pack(side="left",padx=(0,4))
+        hex_e=ctk.CTkEntry(row,width=110,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON); hex_e.pack(side="left")
+        hex_e.insert(0,"#4FD093")
+
+        def _apply(rgb, echo_hex=True):
+            chosen["rgb"]=rgb
+            hx=f"#{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
+            sw.configure(fg_color=hx, border_color=NAVY_700)
+            if echo_hex:
+                hex_e.delete(0,"end"); hex_e.insert(0,hx)
+        def _on_hex(_e=None):
+            rgb=self._parse_hex(hex_e.get())
+            if rgb: _apply(rgb, echo_hex=False)          # valid: update swatch, keep the user's text
+            else: sw.configure(border_color="#E58B8B")   # flag an invalid code without clobbering it
+        hex_e.bind("<KeyRelease>", _on_hex)
         def pick():
-            rgb,_=askcolor(parent=dlg,title="Pick color")
-            if rgb: chosen["rgb"]=tuple(int(c) for c in rgb); sw.configure(fg_color=f"#{chosen['rgb'][0]:02X}{chosen['rgb'][1]:02X}{chosen['rgb'][2]:02X}")
-        ctk.CTkButton(dlg,text="Pick color…",command=pick,font=self.uf,fg_color="transparent",border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",pady=10)
+            rgb,_=askcolor(color=f"#{chosen['rgb'][0]:02X}{chosen['rgb'][1]:02X}{chosen['rgb'][2]:02X}", parent=dlg, title="Pick color")
+            if rgb: _apply(tuple(int(c) for c in rgb))
+        ctk.CTkButton(row,text="Pick…",command=pick,width=64,font=self.uf,fg_color="transparent",border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",padx=(8,0))
+        Tooltip(hex_e,"Type a hex colour (e.g. #4FD093 or 4fd093, short #4d9 also works), or use Pick…")
+
         def commit():
             nm=name_e.get().strip().lower().replace(" ","_")
+            rgb=self._parse_hex(hex_e.get()) or chosen["rgb"]     # honour a typed hex even if not blurred
             if nm:
-                self.palette.add(nm,chosen["rgb"],label=name_e.get().strip())
+                self.palette.add(nm,rgb,label=name_e.get().strip())
                 try: self.palette.save()
                 except OSError: pass
                 self._update_menus()
             dlg.destroy()
-        ctk.CTkButton(dlg,text="Add",command=commit,font=self.ub,width=90,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).pack(side="right",padx=16,pady=10)
+        ctk.CTkButton(dlg,text="Add",command=commit,font=self.ub,width=90,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).pack(side="right",padx=16,pady=14)
 
     def _load_csv(self):
         from tkinter import filedialog
