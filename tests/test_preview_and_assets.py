@@ -232,3 +232,65 @@ def test_parse_hex_roundtrips_palette_hex():
     pal = load_palette()
     pal.add("cobalt_test", rgb, label="Cobalt")
     assert pal.hex("cobalt_test") == "#3C64B4"
+
+
+# --------------------------------------------------------------------------- #
+# Recolouring an existing material
+# --------------------------------------------------------------------------- #
+def _fresh_palette(tmp_path, monkeypatch):
+    """A palette whose user-overrides file lives in tmp, so tests don't touch real config."""
+    from incoming_profile_utility import materials as M
+    monkeypatch.setattr(M, "_USER_CONFIG", tmp_path / "user_materials.json")
+    return M
+
+
+def test_recolouring_a_base_material_persists(tmp_path, monkeypatch):
+    """Recolouring a SHIPPED material must survive a reload — it is saved as a user override,
+    never by editing the tracked base palette."""
+    M = _fresh_palette(tmp_path, monkeypatch)
+    pal = M.load_palette()
+    assert pal.is_base("oxide") and not pal.is_modified("oxide")
+    pal.set_rgb("oxide", (230, 60, 140))
+    assert pal.is_modified("oxide")
+    assert "oxide" in pal.user_materials()          # would previously have been filtered out
+    pal.save()
+    assert M.load_palette().hex("oxide") == "#E63C8C"
+
+
+def test_reset_to_base_restores_shipped_colour(tmp_path, monkeypatch):
+    M = _fresh_palette(tmp_path, monkeypatch)
+    pal = M.load_palette()
+    shipped = pal.hex("oxide")
+    pal.set_rgb("oxide", (1, 2, 3)); pal.save()
+    pal = M.load_palette()
+    assert pal.reset_to_base("oxide") is True
+    assert pal.hex("oxide") == shipped
+    pal.save()
+    assert M.load_palette().hex("oxide") == shipped
+    assert not M.load_palette().is_modified("oxide")
+
+
+def test_base_palette_file_is_never_written(tmp_path, monkeypatch):
+    """The tracked config/materials.json must be untouched by a recolour."""
+    M = _fresh_palette(tmp_path, monkeypatch)
+    tracked = ROOT / "config" / "materials.json"
+    before = tracked.read_bytes()
+    pal = M.load_palette(); pal.set_rgb("silicon", (9, 9, 9)); pal.save()
+    assert tracked.read_bytes() == before
+
+
+def test_recoloured_material_renders_in_its_new_colour(tmp_path, monkeypatch):
+    """The bitmap must contain the new colour and NOT the old one (exact-palette guarantee)."""
+    M = _fresh_palette(tmp_path, monkeypatch)
+    pal = M.load_palette()
+    old = pal.rgb("oxide")
+    pal.set_rgb("oxide", (230, 60, 140))
+    st = evaluate(build_base(dict(material_layers=[dict(material="oxide", thickness=100)],
+                                  pitch=200, space=80, top_vacuum=0, opening_depth=50)), [])
+    out = tmp_path / "r.bmp"
+    render_regions(st, pal, out, 0.5)
+    import numpy as np
+    a = np.asarray(Image.open(out).convert("RGB")).reshape(-1, 3)
+    cols = {tuple(c) for c in np.unique(a, axis=0)}
+    assert (230, 60, 140) in cols
+    assert tuple(old) not in cols

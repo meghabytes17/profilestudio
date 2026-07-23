@@ -84,7 +84,7 @@ const doc1=D([
   tipsBox([
     "The version pill (top-right) and title bar show your build — quote it when reporting an issue.",
     "The window starts maximised and is resizable; the preview grows with it. The plot grid itself stays a fixed size — only the axis numbers change.",
-    "Toolbar Save stores the whole project; Save .bmp exports just the picture. Add your own colours with “＋ New material (color)” — pick a swatch or type a hex code.",
+    "Toolbar Save stores the whole project; Save .bmp exports just the picture. Click any colour swatch (on a layer row or in the legend) to recolour that material everywhere; “＋ New material (color)” adds one. Both take a picker or a hex code.",
   ]),
 ]);
 

@@ -143,6 +143,9 @@ class MaterialLayerRow:
         self.badge=ctk.CTkFrame(top, fg_color=BLUE, corner_radius=999, width=20, height=20); self.badge.pack(side="left", padx=(2,6), pady=7); self.badge.pack_propagate(False)
         self.badge_lbl=ctk.CTkLabel(self.badge, text="1", font=app.eb, text_color=ON); self.badge_lbl.pack(expand=True)
         self.sw=ctk.CTkFrame(top, width=16, height=16, corner_radius=3, fg_color=app.palette.hex(material), border_width=1, border_color=NAVY_700)
+        self.sw.configure(cursor="hand2")
+        self.sw.bind("<Button-1>", lambda e: app._edit_material_color(self.mat.get()))
+        Tooltip(self.sw, "Click to change this material's colour (applies everywhere it's used).")
         self.sw.pack(side="left", padx=(0,6)); self.sw.pack_propagate(False)
         for sym,cmd in (("✕",lambda:app._remove_matlayer(self)),("↓",lambda:app._move_matlayer(self,1)),("↑",lambda:app._move_matlayer(self,-1))):
             ctk.CTkButton(top, text=sym, width=26, font=app.uf, fg_color="transparent", border_width=1,
@@ -896,6 +899,69 @@ class ProfileStudio(ctk.CTk):
                       border_width=1,border_color=GREEN,text_color=GREEN,hover_color=NAVY_700).pack(side="left",expand=True,fill="x",padx=2)
         ctk.CTkButton(bar,text="Done",command=dlg.destroy,font=self.ub,width=90,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).pack(side="left",padx=2)
 
+    def _edit_material_color(self, name):
+        """Recolour an EXISTING material. Applies everywhere that material is used, updates
+        every swatch/legend/preview, and persists (base materials are saved as overrides so
+        the shipped palette file is never touched)."""
+        from tkinter.colorchooser import askcolor
+        if not name or name not in self.palette.names(): return
+        start=self.palette.rgb(name)
+        dlg=ctk.CTkToplevel(self); dlg.title(f"Colour — {name}"); dlg.geometry("380x210")
+        dlg.configure(fg_color=NAVY_800); dlg.transient(self); dlg.grab_set()
+        ctk.CTkLabel(dlg,text=f"Colour of “{name}”",font=self.ub,text_color=ON).pack(anchor="w",padx=16,pady=(14,2))
+        ctk.CTkLabel(dlg,text="Changes every layer and process step using this material.",
+                     font=self.eb,text_color=MUT).pack(anchor="w",padx=16,pady=(0,8))
+        cur={"rgb":tuple(start)}
+        row=ctk.CTkFrame(dlg,fg_color="transparent"); row.pack(fill="x",padx=16,pady=(2,2))
+        sw=ctk.CTkFrame(row,fg_color=self.palette.hex(name),width=40,height=28,corner_radius=6,
+                        border_width=1,border_color=NAVY_700); sw.pack(side="left",padx=(0,10)); sw.pack_propagate(False)
+        ctk.CTkLabel(row,text="Hex",font=self.eb,text_color=MUT).pack(side="left",padx=(0,4))
+        hex_e=ctk.CTkEntry(row,width=110,font=self.mono,fg_color=NAVY_900,border_color=NAVY_700,text_color=ON)
+        hex_e.pack(side="left"); hex_e.insert(0,self.palette.hex(name))
+
+        def _apply(rgb, echo=True):
+            cur["rgb"]=tuple(rgb)
+            hx=f"#{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
+            sw.configure(fg_color=hx, border_color=NAVY_700)
+            if echo: hex_e.delete(0,"end"); hex_e.insert(0,hx)
+        def _on_hex(_e=None):
+            rgb=self._parse_hex(hex_e.get())
+            if rgb: _apply(rgb, echo=False)
+            else: sw.configure(border_color="#E58B8B")
+        hex_e.bind("<KeyRelease>", _on_hex)
+        def pick():
+            rgb,_=askcolor(color=f"#{cur['rgb'][0]:02X}{cur['rgb'][1]:02X}{cur['rgb'][2]:02X}",parent=dlg,title=f"Colour — {name}")
+            if rgb: _apply(tuple(int(c) for c in rgb))
+        ctk.CTkButton(row,text="Pick…",command=pick,width=64,font=self.uf,fg_color="transparent",
+                      border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",padx=(8,0))
+
+        btns=ctk.CTkFrame(dlg,fg_color="transparent"); btns.pack(fill="x",padx=16,pady=(14,10))
+        def commit():
+            rgb=self._parse_hex(hex_e.get()) or cur["rgb"]
+            self._apply_material_color(name, rgb); dlg.destroy()
+        ctk.CTkButton(btns,text="Apply",command=commit,font=self.ub,width=90,fg_color=GREEN,
+                      hover_color=GREEN_D,text_color=GREEN_INK).pack(side="right")
+        ctk.CTkButton(btns,text="Cancel",command=dlg.destroy,font=self.uf,width=80,fg_color="transparent",
+                      border_width=1,border_color=NAVY_700,text_color=SOFT,hover_color=NAVY_700).pack(side="right",padx=(0,8))
+        if self.palette.is_base(name):
+            def reset():
+                if self.palette.reset_to_base(name):
+                    self._apply_material_color(name, self.palette.rgb(name), already_set=True)
+                dlg.destroy()
+            ctk.CTkButton(btns,text="Reset to default",command=reset,font=self.eb,width=124,fg_color="transparent",
+                          border_width=1,border_color=BLUE_L,text_color=SOFT,hover_color=NAVY_700).pack(side="left")
+
+    def _apply_material_color(self, name, rgb, already_set=False):
+        """Commit a colour change: palette -> persist -> refresh every swatch -> re-render."""
+        if not already_set: self.palette.set_rgb(name, rgb)
+        try: self.palette.save()
+        except OSError: pass
+        for r in self.matlayer_rows:                       # refresh row swatches
+            try: r.sw.configure(fg_color=self.palette.hex(r.mat.get()))
+            except Exception: pass
+        self._full_img=None                                # colour changed: cached render is stale
+        self.render_preview()                              # redraws the preview and the legend
+
     @staticmethod
     def _parse_hex(text):
         """Accept '#4FD093', '4fd093', '#4d9' (short form) -> (r,g,b), or None if invalid."""
@@ -1041,7 +1107,11 @@ class ProfileStudio(ctk.CTk):
         for mat in mats:
             chip=ctk.CTkFrame(self.legend,fg_color="transparent"); chip.pack(side="left",padx=(0,12))
             sw=ctk.CTkFrame(chip,width=14,height=14,corner_radius=3,fg_color=self.palette.hex(mat),border_width=1,border_color=NAVY_700); sw.pack(side="left",padx=(0,5)); sw.pack_propagate(False)
-            ctk.CTkLabel(chip,text=mat,font=self.eb,text_color=SOFT).pack(side="left")
+            lbl=ctk.CTkLabel(chip,text=mat,font=self.eb,text_color=SOFT); lbl.pack(side="left")
+            for w in (sw,lbl):
+                w.configure(cursor="hand2")
+                w.bind("<Button-1>", lambda e,m=mat: self._edit_material_color(m))
+            Tooltip(sw, f"Click to change the colour of “{mat}”.")
 
     def _schedule_render(self,_e=None):
         if getattr(self,"_job",None): self.after_cancel(self._job)
