@@ -825,7 +825,8 @@ class ProfileStudio(ctk.CTk):
             self._undo.clear(); self._redo.clear()      # opened state is the baseline; nothing to undo into
             self._set_title(Path(path).name)
         except Exception as exc:
-            self._set_title(f"⚠ open failed: {exc}")
+            self._set_title("couldn't open that project file")
+            self._show_error(self.preview, "⚠ Couldn't open that project file.\nIt may be corrupt, or saved by a different version.", exc, color=MUT)
     def _new_project(self):
         self._reset(capture=False)                       # blank canvas
         self._undo.clear(); self._redo.clear()           # fresh project: no history
@@ -997,6 +998,29 @@ class ProfileStudio(ctk.CTk):
         self._full_img=None                                # colour changed: cached render is stale
         self.render_preview()                              # redraws the preview and the legend
 
+    def _show_error(self, widget, message, exc, color=None):
+        """Show a short, generic error. The raw exception (which often contains absolute
+        filesystem paths and internal structure) is NOT put on screen — it goes into a hover
+        tooltip, so it stays available for diagnosis but never lands in a screenshot or a
+        support ticket unless someone deliberately hovers."""
+        detail=f"{type(exc).__name__}: {exc}"
+        try:
+            widget.configure(text=message, **({"text_color":color} if color else {}))
+        except Exception:
+            pass
+        tip=getattr(widget,"_err_tip",None)
+        if tip is None:
+            tip=Tooltip(widget, detail)                 # created once, text refreshed after
+            try: widget._err_tip=tip
+            except Exception: pass
+        else:
+            tip.t=detail
+        return detail
+
+    def _clear_error_tip(self, widget):
+        tip=getattr(widget,"_err_tip",None)
+        if tip is not None: tip.t=""                    # nothing to reveal once it's healthy
+
     @staticmethod
     def _parse_hex(text):
         """Accept '#4FD093', '4fd093', '#4d9' (short form) -> (r,g,b), or None if invalid."""
@@ -1054,12 +1078,16 @@ class ProfileStudio(ctk.CTk):
         try:
             df=load_trace(path, normalize=False)
         except Exception as exc:
-            self.csv_label.configure(text=f"⚠ {exc}", text_color="#E58B8B"); return
+            self._show_error(self.csv_label,
+                             "⚠ Couldn't read that CSV. It needs numeric 'width' and 'height' columns. "
+                             "Hover for details.", exc, color="#E58B8B")
+            return
         self._capture()
         self.opening_trace=[(float(w),float(h)) for w,h in zip(df["width"],df["height"])]
         hspan=float(df["height"].max()-df["height"].min())
         if not self.matlayer_rows and hspan>0:      # give the opening something to cut, so it's visible
             self.matlayer_rows.append(MaterialLayerRow(self,"silicon",round(hspan,1))); self._relayout_matstack()
+        self._clear_error_tip(self.csv_label)
         self.csv_label.configure(text=f"✓ CSV loaded from {Path(path).name} ({len(df)} pts) — aligned to the TOP of the stack, cut downward. Set 'CSV height=0 at' to reposition; Space is ignored.", text_color=GREEN)
         self.render_preview()
 
@@ -1228,6 +1256,7 @@ class ProfileStudio(ctk.CTk):
             srcW,srcH=src_img.size
             self._prof_wh=(max(1,int(srcW*fit)),max(1,int(srcH*fit)))   # profile's on-screen size (for panning)
             self._base_disp=disp                               # clean image (for the measure overlay)
+            self._clear_error_tip(self.preview)
             self.preview.configure(image=ctk.CTkImage(light_image=disp,dark_image=disp,size=disp.size),text="")
             self._pv=(disp.size[0],disp.size[1],z)                        # for pan / measure mapping
             if not view_only: self._update_legend()   # materials can't change while panning
@@ -1241,7 +1270,10 @@ class ProfileStudio(ctk.CTk):
                     tail=""
                 self.preview_note.configure(text=f"{self._last_npp:.3g} nm/px{mode} · updates live{tail}",text_color=MUT)
         except Exception as exc:
-            self.preview.configure(image=None,text=f"⚠ {exc}",text_color=MUT)
+            self.preview.configure(image=None)
+            self._show_error(self.preview,
+                             "⚠ Couldn't draw the preview.\nCheck the layer thicknesses and opening values."
+                             "  (hover for details)", exc, color=MUT)
 
     def save_bmp(self):
         from tkinter import filedialog

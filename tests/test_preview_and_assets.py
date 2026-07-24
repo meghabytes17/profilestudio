@@ -362,3 +362,33 @@ def test_dependencies_are_pinned_for_release_builds():
     assert all("==" in p for p in pins), f"unpinned entries: {[p for p in pins if '==' not in p]}"
     for pkg in ("numpy", "pandas", "opencv-python", "customtkinter", "pillow", "shapely"):
         assert any(p.startswith(pkg + "==") for p in pins), f"{pkg} not pinned"
+
+
+def test_no_raw_exception_text_is_shown_in_the_ui():
+    """Error messages must be generic: raw exception text typically embeds absolute paths and
+    internal structure, which then travels in screenshots and support tickets. Detail belongs
+    in the hover tooltip, not on screen."""
+    import re
+    src = (ROOT / "src" / "incoming_profile_utility" / "gui.py").read_text()
+    # a widget's visible text must never interpolate the caught exception
+    offenders = re.findall(r'text\s*=\s*f?"[^"]*\{exc\}[^"]*"', src)
+    assert not offenders, f"raw exception rendered into UI text: {offenders}"
+    assert "_show_error(" in src, "errors should go through the generic-message helper"
+
+
+def test_show_error_keeps_detail_off_screen(tmp_path):
+    """_show_error puts the generic message on the widget and the detail in the tooltip."""
+    from incoming_profile_utility.gui import ProfileStudio
+
+    class FakeWidget:
+        def __init__(self): self.kw = {}
+        def configure(self, **kw): self.kw.update(kw)
+        def bind(self, *a, **k): pass
+
+    app = ProfileStudio.__new__(ProfileStudio)
+    w = FakeWidget()
+    secret = "C:\\Users\\Dagger\\SecretTapeout\\wafer.json"
+    detail = ProfileStudio._show_error(app, w, "⚠ Couldn't open that project file.",
+                                       FileNotFoundError(secret))
+    assert secret not in w.kw.get("text", ""), "path leaked into the visible message"
+    assert secret in detail, "detail should still be retrievable for diagnosis"

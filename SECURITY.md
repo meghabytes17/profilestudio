@@ -64,15 +64,22 @@ with no internet, and how to add `--generate-hashes` so a tampered wheel is reje
 --generate-hashes`) and build with `pip install --require-hashes`. This is the one remaining
 supply-chain hardening step and it is a build-process change, not a code change.
 
-### 3. Raw exception text is shown in the UI
+### 3. Raw exception text was shown in the UI — FIXED
 
-**Severity: Low** · **Confirmed** · **Accepted / optional**
+**Severity: Low** · **Confirmed** · **Fixed**
 
-Three paths surface the raw exception string (failed project open, failed CSV load, failed
-render), which typically includes an absolute filesystem path. The only viewer is the operator
-who triggered it, so this is not a privilege boundary — but such messages do end up in
-screenshots and support tickets. If the customer objects to internal paths appearing in
-screenshots, these can be reduced to a short message plus a log entry.
+Three paths surfaced the raw exception string (failed project open, failed CSV load, failed
+render), which typically embeds an absolute filesystem path — and therefore project names,
+customer directory structure, and internal layout. The only viewer is the operator who
+triggered it, so this was never a privilege boundary, but such messages travel in screenshots
+and support tickets.
+
+*Fix:* all three now show a short, generic, actionable message with no path and no exception
+text. The full detail is retained in a hover tooltip, so diagnosis is still possible but only
+on deliberate hover — it does not appear in a default screenshot. Stale detail is cleared once
+the operation succeeds. Verified with a project in a directory named after a customer: neither
+the directory nor the filename appears anywhere on screen. Two regression tests fail if raw
+exception text is rendered into UI text again.
 
 ---
 
@@ -124,7 +131,7 @@ that belongs in full-disk encryption and folder ACLs, not in this application.
 
 ## Verdict
 
-**Ship**, after applying the two fixes above (both are in the current build) and, ideally, the
+**Ship**, after applying the three fixes above (all are in the current build) and, ideally, the
 hash-pinned build step from finding 2. No architectural security work is required, because the
 architecture the red-team prompt assumed — a network service handling multi-user jobs — does
 not exist here.
