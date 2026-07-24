@@ -7,6 +7,12 @@ python -m pip install --upgrade pip
 REM Reproducible build: install the PINNED set, not floating >= versions.
 REM Airgapped? see requirements-lock.txt for the vendored-wheelhouse procedure.
 pip install -r requirements-lock.txt
+if errorlevel 1 (
+  echo.
+  echo *** Dependency install failed. If it's PyInstaller not matching your Python version,
+  echo *** regenerate the lock on THIS machine:  tools\make_lock.bat
+  exit /b 1
+)
 pip install -e .
 REM regenerate the version resource + icon from the single version source
 python tools\make_version_info.py

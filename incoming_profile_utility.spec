@@ -30,6 +30,25 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# Generate the Windows version resource from the single version source at build time, and
+# guarantee it is pure ASCII. PyInstaller parses this file as Python source and rejects any
+# non-ASCII byte (e.g. an em-dash) with 'invalid or missing encoding declaration'. Doing it
+# here means the .exe metadata is correct even if build_exe.bat wasn't run or an older
+# generated file is lying around.
+import subprocess, sys as _sys
+from pathlib import Path as _Path
+_vi = _Path("build/version_info.txt")
+try:
+    subprocess.run([_sys.executable, "tools/make_version_info.py"], check=False)
+except Exception:
+    pass
+if _vi.exists():
+    _clean = _vi.read_text(encoding="utf-8", errors="replace").encode("ascii", "replace").decode("ascii")
+    _vi.write_text(_clean, encoding="ascii")
+    _version_file = str(_vi)
+else:
+    _version_file = None                      # no resource rather than a broken build
+
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
     name="ProfileStudio",
@@ -40,5 +59,5 @@ exe = EXE(
     console=False,               # GUI app: no console window
     disable_windowed_traceback=False,
     icon="assets/icon.ico",      # SandBox-branded Profile Studio icon
-    version="build/version_info.txt",   # .exe Properties -> Details (run tools/make_version_info.py)
+    version=_version_file,        # .exe Properties -> Details; regenerated + ASCII-sanitised above
 )
