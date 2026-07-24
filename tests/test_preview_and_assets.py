@@ -353,15 +353,25 @@ def test_no_code_execution_primitives_in_source():
 
 
 def test_dependencies_are_pinned_for_release_builds():
-    """Reproducible airgapped builds need an exact set, not floating >= bounds."""
+    """Reproducible airgapped builds need an exact set, not floating >= bounds.
+
+    Tolerates both forms of the lock: plain pins, and the hash-pinned output of
+    `pip-compile --generate-hashes` (where each pin is followed by `--hash=` continuation
+    lines and trailing backslashes)."""
     lock = ROOT / "requirements-lock.txt"
     assert lock.exists(), "requirements-lock.txt missing"
-    pins = [l.strip() for l in lock.read_text().splitlines()
-            if l.strip() and not l.strip().startswith("#")]
+    pins = []
+    for raw in lock.read_text().splitlines():
+        line = raw.strip().rstrip("\\").strip()
+        if not line or line.startswith("#") or line.startswith("--"):
+            continue                       # comments, hash continuations, pip flags
+        pins.append(line)
     assert pins, "lock file has no pins"
-    assert all("==" in p for p in pins), f"unpinned entries: {[p for p in pins if '==' not in p]}"
+    unpinned = [p for p in pins if "==" not in p]
+    assert not unpinned, f"unpinned entries: {unpinned}"
+    names = {p.split("==")[0].lower().replace("_", "-") for p in pins}
     for pkg in ("numpy", "pandas", "opencv-python", "customtkinter", "pillow", "shapely"):
-        assert any(p.startswith(pkg + "==") for p in pins), f"{pkg} not pinned"
+        assert pkg in names, f"{pkg} not pinned"
 
 
 def test_no_raw_exception_text_is_shown_in_the_ui():

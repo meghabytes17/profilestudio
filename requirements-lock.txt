@@ -4,7 +4,22 @@
 # environments. That is wrong for shipping: a rebuild months later silently pulls different
 # versions, so the .exe you validated is not the .exe you ship. Build releases from THIS file.
 #
-# Verified-working set:
+# ---------------------------------------------------------------------------
+# THIS FILE IS NOT YET HASH-PINNED. Regenerate it before customer delivery:
+#
+#     tools\make_lock.bat          (run on WINDOWS, same Python you build with)
+#
+# That produces exact versions + sha256 hashes for every package, including transitive
+# ones, so a tampered or substituted wheel is rejected at install time.
+#
+# Do NOT generate the lock on Linux/macOS: pip-compile resolves for the current platform,
+# so a non-Windows lock silently omits PyInstaller's Windows-only dependencies
+# (pefile, pywin32-ctypes) and the build fails.
+#
+# Once hashes are present, pip enforces them automatically -- no extra flag needed.
+# ---------------------------------------------------------------------------
+#
+# Current (versions verified working, not yet hashed):
 numpy==2.4.4
 pandas==3.0.2
 opencv-python==4.13.0.92
