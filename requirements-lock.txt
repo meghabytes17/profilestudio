@@ -1,0 +1,40 @@
+# Pinned dependency set for REPRODUCIBLE, AIRGAPPED builds.
+#
+# pyproject.toml uses lower bounds (>=) so the package stays installable in a range of
+# environments. That is wrong for shipping: a rebuild months later silently pulls different
+# versions, so the .exe you validated is not the .exe you ship. Build releases from THIS file.
+#
+# Verified-working set:
+numpy==2.4.4
+pandas==3.0.2
+opencv-python==4.13.0.92
+customtkinter==6.0.0
+pillow==12.1.1
+shapely==2.1.2
+pyinstaller==6.11.1
+#
+# ---------------------------------------------------------------------------
+# Airgapped install (no internet on the build machine)
+# ---------------------------------------------------------------------------
+# On an internet-connected machine of the SAME OS/Python version, vendor the wheels:
+#
+#   pip download -r requirements-lock.txt -d wheelhouse --require-hashes
+#
+# Move ./wheelhouse to the airgapped build machine, then:
+#
+#   pip install --no-index --find-links=wheelhouse -r requirements-lock.txt
+#
+# ---------------------------------------------------------------------------
+# Hardening the supply chain further (recommended before customer delivery)
+# ---------------------------------------------------------------------------
+# Add hashes so a tampered wheel cannot be substituted:
+#
+#   pip install pip-tools
+#   pip-compile --generate-hashes --output-file requirements-lock.txt pyproject.toml
+#
+# Then `pip install --require-hashes -r requirements-lock.txt` will refuse any wheel whose
+# hash does not match.
+#
+# To regenerate this list from a known-good environment:
+#
+#   pip freeze > requirements-lock.txt

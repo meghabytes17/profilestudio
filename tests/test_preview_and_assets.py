@@ -294,3 +294,71 @@ def test_recoloured_material_renders_in_its_new_colour(tmp_path, monkeypatch):
     cols = {tuple(c) for c in np.unique(a, axis=0)}
     assert (230, 60, 140) in cols
     assert tuple(old) not in cols
+
+
+# --------------------------------------------------------------------------- #
+# IP hygiene: what the app leaves on disk
+# --------------------------------------------------------------------------- #
+def test_preview_is_not_written_to_a_fixed_shared_temp_path():
+    """Regression: the preview render (the customer's cross-section = their IP) must not go to
+    a predictable path in the shared temp dir, where it survived after exit and where two
+    instances clobbered each other."""
+    src = (ROOT / "src" / "incoming_profile_utility" / "gui.py").read_text()
+    assert "_ipu_preview.bmp" not in src, "preview is using a fixed shared temp filename again"
+    assert "_session_tmp()" in src, "preview should render into the private session directory"
+
+
+def test_session_tmp_is_private_and_purges(tmp_path, monkeypatch):
+    """The scratch directory is owner-only and is removed, taking any render with it."""
+    import os
+    import tempfile as T
+    from incoming_profile_utility.gui import ProfileStudio
+
+    obj = ProfileStudio.__new__(ProfileStudio)          # no Tk needed for this logic
+    obj._tmpdir = None
+    d = ProfileStudio._session_tmp(obj)
+    assert d.exists()
+    if os.name == "posix":                              # Windows uses ACLs, not mode bits
+        assert oct(d.stat().st_mode)[-3:] == "700"
+    (d / "preview.bmp").write_bytes(b"secret-geometry")
+    ProfileStudio._purge_tmp(obj)
+    assert not d.exists(), "scratch directory (and the render inside it) must be removed"
+
+
+def test_no_network_or_telemetry_in_source():
+    """Airgap constraint: nothing may fetch, phone home, or auto-update at runtime."""
+    import re
+    src_dir = ROOT / "src"
+    bad = []
+    for py in src_dir.rglob("*.py"):
+        text = py.read_text()
+        for pat in (r"\burllib\b", r"\brequests\.", r"\bsocket\.", r"urlopen", r"webbrowser",
+                    r"https?://(?!www\.w3\.org)"):       # w3.org is the SVG namespace, not a fetch
+            if re.search(pat, text):
+                bad.append(f"{py.name}: {pat}")
+    assert not bad, f"possible network dependency: {bad}"
+
+
+def test_no_code_execution_primitives_in_source():
+    """A hostile project/CSV must not be able to reach eval/exec/pickle/subprocess."""
+    import re
+    bad = []
+    for py in (ROOT / "src").rglob("*.py"):
+        text = py.read_text()
+        for pat in (r"\beval\(", r"\bexec\(", r"\bpickle\b", r"\bsubprocess\b",
+                    r"os\.system\(", r"shell\s*=\s*True", r"yaml\.load\("):
+            if re.search(pat, text):
+                bad.append(f"{py.name}: {pat}")
+    assert not bad, f"code-execution primitive reachable: {bad}"
+
+
+def test_dependencies_are_pinned_for_release_builds():
+    """Reproducible airgapped builds need an exact set, not floating >= bounds."""
+    lock = ROOT / "requirements-lock.txt"
+    assert lock.exists(), "requirements-lock.txt missing"
+    pins = [l.strip() for l in lock.read_text().splitlines()
+            if l.strip() and not l.strip().startswith("#")]
+    assert pins, "lock file has no pins"
+    assert all("==" in p for p in pins), f"unpinned entries: {[p for p in pins if '==' not in p]}"
+    for pkg in ("numpy", "pandas", "opencv-python", "customtkinter", "pillow", "shapely"):
+        assert any(p.startswith(pkg + "==") for p in pins), f"{pkg} not pinned"

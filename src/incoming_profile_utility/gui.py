@@ -1,7 +1,10 @@
 """Incoming Profile Utility — GUI (customtkinter), SandBox brand theme."""
 from __future__ import annotations
 
+import atexit
 import math
+import os
+import shutil
 import sys
 import tempfile
 import tkinter as tk
@@ -302,6 +305,7 @@ class ProfileStudio(ctk.CTk):
         self._base_title=f"Incoming Profile Utility  {short_version()}"
         self.title(self._base_title); self.geometry("1360x900")
         self._set_app_icon()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)   # wipe the scratch dir on exit
         self.palette=load_palette(); self.opening_trace=None
         self.material_menus=[]; self.matlayer_rows=[]; self._last_state=None
         self._undo=[]; self._redo=[]; self._loading=False; self._drag=None; self._last_npp=0.4; self.smooth_level=ctk.StringVar(value="Off")
@@ -418,6 +422,37 @@ class ProfileStudio(ctk.CTk):
             try: self.after_cancel(self._resize_job)
             except Exception: pass
         self._resize_job=self.after(120, lambda: self.render_preview(view_only=True))
+
+    def _session_tmp(self):
+        """A private, per-session scratch directory for preview renders.
+
+        The preview used to be written to a FIXED, predictable path in the shared temp
+        directory and was never deleted, so a full-resolution render of the
+        customer's cross-section — their IP — survived on disk after the app closed, at a
+        predictable location, and two instances clobbered each other. Now each session gets
+        its own directory (0700 where the OS honours it), removed on exit.
+        """
+        d=getattr(self,"_tmpdir",None)
+        if d is None or not Path(d).exists():
+            d=tempfile.mkdtemp(prefix="ipu_")
+            try: os.chmod(d, 0o700)          # owner-only (no-op on Windows, which uses ACLs)
+            except OSError: pass
+            self._tmpdir=d
+            atexit.register(self._purge_tmp)     # also cleans up on an unclean exit
+        return Path(d)
+
+    def _purge_tmp(self):
+        """Remove the session scratch directory and everything in it."""
+        d=getattr(self,"_tmpdir",None)
+        if not d: return
+        self._tmpdir=None
+        try: shutil.rmtree(d, ignore_errors=True)
+        except Exception: pass
+
+    def _on_close(self):
+        self._purge_tmp()
+        try: self.destroy()
+        except Exception: pass
 
     def _fit_to_screen(self):
         """Keep the window within the physical screen at ANY Windows display scaling,
@@ -1153,7 +1188,7 @@ class ProfileStudio(ctk.CTk):
         self._job=None
         if self._loading: return
         try:
-            tmp=Path(tempfile.gettempdir())/"_ipu_preview.bmp"
+            tmp=self._session_tmp()/"preview.bmp"
             cached=getattr(self,"_full_img",None)
             if view_only and cached is not None:
                 im_full=cached                              # skip engine + raster entirely

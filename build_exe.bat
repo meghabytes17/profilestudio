@@ -4,7 +4,10 @@ REM Run from the repo root in a Windows command prompt.
 python -m venv .venv
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
-pip install -e ".[geometry]" pyinstaller
+REM Reproducible build: install the PINNED set, not floating >= versions.
+REM Airgapped? see requirements-lock.txt for the vendored-wheelhouse procedure.
+pip install -r requirements-lock.txt
+pip install -e .
 REM regenerate the version resource + icon from the single version source
 python tools\make_version_info.py
 python tools\make_icon.py
