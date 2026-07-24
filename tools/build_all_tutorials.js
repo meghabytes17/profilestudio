@@ -8,6 +8,8 @@ const {
 const NAVY="12233B", BLUE="3E5C86", GREEN="2E9E77", INK="1F2A38", MUT="6B7A8D",
       LINE="CBD6E4", PANEL="F6F9FD", GREENBG="EAF6F0";
 const F="Arial";
+// docx v9 requires BOTH an explicit type and a Node Buffer here — dropping either silently
+// emits zero images (verified). Do not "modernise" this to a Uint8Array or a typeless ImageRun.
 const img=(p,w,h)=>new ImageRun({type:"png",data:fs.readFileSync(p),transformation:{width:w,height:h}});
 const T=(t,o={})=>new TextRun({text:t,size:20,font:F,color:INK,...o});
 const B=t=>T(t,{bold:true});
@@ -17,9 +19,47 @@ const noBorder=()=>["top","bottom","left","right","insideHorizontal","insideVert
 
 const eyebrow=t=>new Paragraph({spacing:{after:30},children:[new TextRun({text:t,color:BLUE,size:16,font:F,bold:true,characterSpacing:20})]});
 const title=t=>new Paragraph({spacing:{after:60},children:[new TextRun({text:t,color:NAVY,size:38,font:F,bold:true})]});
+
+// ---- version (kept in step with the app) ----
+const VERSION = (()=>{ try{
+  const s=fs.readFileSync("src/incoming_profile_utility/__init__.py","utf8");
+  const v=s.match(/__version__\s*=\s*"([^"]+)"/), d=s.match(/__build_date__\s*=\s*"([^"]+)"/);
+  return {v:v?v[1]:"", d:d?d[1]:""};
+}catch(e){ return {v:"",d:""}; } })();
+
+// Branded masthead: the REAL SandBox logo (never recreated as text) on the left, the tutorial
+// eyebrow + a version chip on the right, over a thin green rule — matching the application header.
+function masthead(eyebrowText){
+  const LOGO="assets/sandbox-logo.png";
+  const hasLogo=fs.existsSync(LOGO);
+  const left=new TableCell({width:{size:3200,type:WidthType.DXA},verticalAlign:VerticalAlign.CENTER,borders:noBorder(),
+    children:[new Paragraph({children:[ hasLogo?img(LOGO,150,43):new TextRun({text:"SandBox",bold:true,color:NAVY,size:30,font:F}) ]})]});
+  const right=new TableCell({width:{size:6840,type:WidthType.DXA},verticalAlign:VerticalAlign.CENTER,borders:noBorder(),
+    children:[
+      new Paragraph({alignment:AlignmentType.RIGHT,spacing:{after:20},children:[
+        new TextRun({text:eyebrowText,color:BLUE,size:16,font:F,bold:true,characterSpacing:20})]}),
+      new Paragraph({alignment:AlignmentType.RIGHT,children:[
+        new TextRun({text:`Profile Studio  v${VERSION.v}`,color:MUT,size:15,font:F})]}),
+    ]});
+  return [
+    new Table({width:{size:10040,type:WidthType.DXA},columnWidths:[3200,6840],borders:noBorder(),
+      rows:[new TableRow({children:[left,right]})]}),
+    new Paragraph({spacing:{before:40,after:110},border:{bottom:{style:BorderStyle.SINGLE,size:10,color:GREEN,space:6}},
+      children:[new TextRun({text:"",size:2})]}),
+  ];
+}
+function footer(){
+  return new Paragraph({spacing:{before:220},border:{top:{style:BorderStyle.SINGLE,size:6,color:LINE,space:8}},
+    alignment:AlignmentType.CENTER,children:[
+      new TextRun({text:"STRICTLY CONFIDENTIAL",bold:true,color:MUT,size:14,font:F,characterSpacing:14}),
+      new TextRun({text:`     ·     © 2026 SandBox Semiconductor, Inc.     ·     Profile Studio v${VERSION.v} (${VERSION.d})`,
+        color:MUT,size:14,font:F}),
+    ]});
+}
+
 const sub=t=>new Paragraph({spacing:{after:60},children:[new TextRun({text:t,color:MUT,size:20,font:F})]});
 const rule=()=>new Paragraph({spacing:{after:150},border:{bottom:{style:BorderStyle.SINGLE,size:6,color:LINE,space:8}},children:[new TextRun({text:"",size:2})]});
-const sect=t=>new Paragraph({spacing:{before:170,after:70},children:[
+const sect=t=>new Paragraph({spacing:{before:140,after:60},children:[
   new TextRun({text:"▍",color:GREEN,size:22,font:F}),
   new TextRun({text:" "+t,color:NAVY,size:23,font:F,bold:true})]});
 const body=runs=>new Paragraph({spacing:{after:70},children:runs});
@@ -48,19 +88,19 @@ function tipsBox(lines){
     rows:[new TableRow({children:[new TableCell({width:{size:10040,type:WidthType.DXA},shading:{type:ShadingType.CLEAR,fill:GREENBG},
       margins:{top:110,bottom:110,left:150,right:150},children:kids})]})]});
 }
-const PAGE={size:{width:12240,height:15840},margin:{top:1000,bottom:800,left:1100,right:1100}};
+const PAGE={size:{width:12240,height:15840},margin:{top:760,bottom:640,left:1100,right:1100}};
 const D=(children)=>new Document({sections:[{properties:{page:PAGE},children}]});
 const IMG=(process.env.IPU_IMG||"docs/tutorial_img/");   // run tools/gen_tutorial_images.py first
 
 // ---- Tutorial 1 --------------------------------------------------------------
 const doc1=D([
-  eyebrow("SANDBOX · PROFILE STUDIO — TUTORIAL 1"),
+  ...masthead("TUTORIAL 1"),
   title("Building a U-shaped mask profile"),
   sub("Reproduce a flared mask with a rounded (U) opening bottom using the material stack and per-layer shape treatments."),
   rule(),
   panelRow([
-    {path:IMG+"mask_target.png",iw:172,ih:135,cap:"Target — your image"},
-    {path:IMG+"mask_result.png",iw:106,ih:135,cap:"Result in Profile Studio"},
+    {path:IMG+"mask_target.png",iw:150,ih:118,cap:"Target — your image"},
+    {path:IMG+"mask_result.png",iw:93,ih:118,cap:"Result in Profile Studio"},
   ]),
   sect("Steps"),
   step("1",[B("Material stack"),T(" (row 1 = top). Add "),B("indigo"),T(" 200 nm, then "),B("lavender"),T(" 55 nm.")]),
@@ -82,10 +122,10 @@ const doc1=D([
   bullet([B("Save .bmp…"),T(" exports the picture; "),B("Polygons…"),T(" exports the profile as editable vector shapes (SVG) plus exact nm coordinates (JSON).")]),
   gap(),
   tipsBox([
-    "The version pill (top-right) and title bar show your build — quote it when reporting an issue.",
-    "The window starts maximised and is resizable; the preview grows with it. The plot grid itself stays a fixed size — only the axis numbers change.",
-    "Toolbar Save stores the whole project; Save .bmp exports just the picture. Click any colour swatch (on a layer row or in the legend) to recolour that material everywhere; “＋ New material (color)” adds one. Both take a picker or a hex code.",
+    "The window starts maximised and resizable (the preview grows with it); the plot grid stays a fixed size — only the axis numbers change. Your build is in the header pill and title bar — quote it when reporting an issue.",
+    "Save stores the whole project; Save .bmp exports the picture. Click any colour swatch — on a layer row or in the legend — to recolour that material everywhere; “＋ New material (color)” adds one. Both take a picker or a hex code.",
   ]),
+  footer(),
 ]);
 
 // ---- Tutorial 2 --------------------------------------------------------------
@@ -99,7 +139,7 @@ function csvTable(){
       children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:c,size:18,font:"Consolas",bold:i===0,color:i===0?"FFFFFF":INK})]})]}))}))});
 }
 const doc2=D([
-  eyebrow("SANDBOX · PROFILE STUDIO — TUTORIAL 2"),
+  ...masthead("TUTORIAL 2"),
   title("Using a CSV"),
   sub("Define an arbitrary, curved profile from a width/height trace instead of the rectangular Space opening. A CSV can describe a whole etched profile, not just a simple opening."),
   rule(),
@@ -131,11 +171,12 @@ const doc2=D([
     "Negative width is rejected; ragged rows or blanks are rejected with a clear message.",
     "Points don't need to be pre-sorted — they're ordered by height internally.",
   ]),
+  footer(),
 ]);
 
 // ---- Tutorial 3 --------------------------------------------------------------
 const doc3=D([
-  eyebrow("SANDBOX · PROFILE STUDIO — TUTORIAL 3"),
+  ...masthead("TUTORIAL 3"),
   title("The process stack"),
   sub("After the material stack and opening are built, the process stack transforms the profile step by step — the same idea as real fab steps (deposit, fill, etch, polish)."),
   rule(),
@@ -160,6 +201,7 @@ const doc3=D([
     "Etch with a material selected removes only that material; “(any)” removes whatever it reaches.",
     "Build a superlattice with a Repeat block: e.g. deposit A, deposit B, repeated ×10.",
   ]),
+  footer(),
 ]);
 
 (async()=>{

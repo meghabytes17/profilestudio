@@ -15,8 +15,12 @@ t1=dict(material_layers=[dict(material="indigo",thickness=200,shape=[dict(kind="
                           dict(material="lavender",thickness=55)],
         pitch=210, space=95, top_vacuum=25, opening_depth=200, opening_bottom_radius=47)
 render(t1, [], "mask_result.png", npp=0.4)
-# "target" = same but a touch simpler (what the user is aiming to reproduce)
-render(t1, [], "mask_target.png", npp=0.4)
+# the "target" a user is aiming to reproduce: the same stack but a plain rectangular opening
+# (no rounded top, no U bottom) — so Target vs Result reads as before/after, not two identical images
+t1_target=dict(material_layers=[dict(material="indigo",thickness=200),
+                                dict(material="lavender",thickness=55)],
+               pitch=210, space=95, top_vacuum=25, opening_depth=200, opening_bottom_radius=0)
+render(t1_target, [], "mask_target.png", npp=0.4)
 
 # --- Tutorial 2: CSV trace result (a curved opening) ---
 import numpy as np, pandas as pd, tempfile
