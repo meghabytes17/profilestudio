@@ -402,3 +402,43 @@ def test_show_error_keeps_detail_off_screen(tmp_path):
                                        FileNotFoundError(secret))
     assert secret not in w.kw.get("text", ""), "path leaked into the visible message"
     assert secret in detail, "detail should still be retrievable for diagnosis"
+
+
+# --------------------------------------------------------------------------- #
+# Branding: real logo, product name, exe name
+# --------------------------------------------------------------------------- #
+def test_real_logo_asset_ships_and_is_bundled():
+    logo = ROOT / "assets" / "sandbox-logo.png"
+    assert logo.exists(), "the real sandbox-logo.png must ship with the app"
+    im = Image.open(logo)
+    assert im.mode in ("RGBA", "LA") or "transparency" in im.info, "logo should be transparent"
+    spec = (ROOT / "incoming_profile_utility.spec").read_text()
+    assert "assets/sandbox-logo.png" in spec, "logo not bundled into the .exe"
+
+
+def test_mark_is_not_recreated_as_styled_text():
+    """Brand rule: use the real mark, never a text stand-in for it."""
+    src = (ROOT / "src" / "incoming_profile_utility" / "gui.py").read_text()
+    assert "SANDBOX · PROFILE STUDIO" not in src
+    assert "sandbox-logo.png" in src, "header should load the real logo asset"
+
+
+def test_executable_is_named_profile_studio():
+    spec = (ROOT / "incoming_profile_utility.spec").read_text()
+    assert 'name="ProfileStudio"' in spec
+    assert "IncomingProfileUtility" not in (ROOT / "build_exe.bat").read_text()
+
+
+def test_user_config_migrates_from_the_old_name():
+    """Renaming the app must not orphan materials saved by earlier versions."""
+    src = (ROOT / "src" / "incoming_profile_utility" / "materials.py").read_text()
+    assert '"ProfileStudio"' in src
+    assert "IncomingProfileUtility" in src, "legacy path must still be checked for migration"
+    assert "copytree" in src, "old user materials should be carried over"
+
+
+def test_release_notes_cover_the_current_version():
+    import incoming_profile_utility as ipu
+    notes = (ROOT / "RELEASE_NOTES.md").read_text()
+    assert f"## {ipu.__version__}" in notes, "current version has no release-notes section"
+    assert ipu.__build_date__ in notes

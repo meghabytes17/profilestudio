@@ -2,7 +2,7 @@
 """PyInstaller spec for the Incoming Profile Utility GUI.
 
 Build:  pyinstaller incoming_profile_utility.spec
-Output: dist/IncomingProfileUtility.exe  (Windows)  /  dist/IncomingProfileUtility (Linux/macOS)
+Output: dist/ProfileStudio.exe  (Windows)  /  dist/ProfileStudio (Linux/macOS)
 
 Produces a single-file, windowed (no console) executable. customtkinter ships JSON
 themes + assets that must be collected, and config/materials.json is bundled so the
@@ -10,7 +10,7 @@ base palette is available at runtime.
 """
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-datas = [("config/materials.json", "config"), ("assets/icon.png", "assets"), ("assets/icon.ico", "assets")]
+datas = [("config/materials.json", "config"), ("assets/icon.png", "assets"), ("assets/icon.ico", "assets"), ("assets/sandbox-logo.png", "assets")]
 datas += collect_data_files("customtkinter")          # themes / assets
 
 hiddenimports = collect_submodules("customtkinter") + [
@@ -32,7 +32,7 @@ pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name="IncomingProfileUtility",
+    name="ProfileStudio",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

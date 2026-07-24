@@ -26,7 +26,14 @@ def _user_dir() -> Path:
     """Writable directory for user-added materials."""
     if getattr(sys, "frozen", False):
         root = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
-        d = Path(root) / "IncomingProfileUtility"
+        d = Path(root) / "ProfileStudio"
+        legacy = Path(root) / "IncomingProfileUtility"      # pre-rename location
+        if legacy.is_dir() and not d.exists():
+            try:                                            # carry over saved materials/colours
+                import shutil
+                shutil.copytree(legacy, d)
+            except OSError:
+                d = legacy                                  # migration failed: keep using the old one
     else:
         d = Path(__file__).resolve().parents[2] / "config"
     try:

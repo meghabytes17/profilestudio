@@ -12,7 +12,7 @@ To release:
 3. Add a dated section to `CHANGES.md`.
 4. `pytest` — `test_version_sources_agree` fails if the two version numbers drift.
 5. `build_exe.bat` — it regenerates the .exe version resource and icon from `__version__`
-   automatically, so `dist\IncomingProfileUtility.exe` -> Properties -> Details shows it.
+   automatically, so `dist\ProfileStudio.exe` -> Properties -> Details shows it.
 
 Testers can always read the running version from the **header pill** (top-right) or the
 **title bar**, and the built file's version from right-click -> Properties -> Details. No more

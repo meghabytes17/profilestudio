@@ -25,10 +25,10 @@ jobs:
       - name: Upload artifact (download from the Actions run)
         uses: actions/upload-artifact@v4
         with:
-          name: IncomingProfileUtility-windows
-          path: dist/IncomingProfileUtility.exe
+          name: ProfileStudio-windows
+          path: dist/ProfileStudio.exe
       - name: Attach to release (on tags)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/IncomingProfileUtility.exe
+          files: dist/ProfileStudio.exe

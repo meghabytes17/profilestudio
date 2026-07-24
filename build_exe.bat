@@ -14,7 +14,7 @@ python tools\make_icon.py
 pyinstaller --clean --noconfirm incoming_profile_utility.spec
 echo.
 echo ============================================================
-echo Built: dist\IncomingProfileUtility.exe
+echo Built: dist\ProfileStudio.exe
 python -c "import sys; sys.path.insert(0,'src'); import incoming_profile_utility as i; print('   '+i.version_string())"
 echo Send that single file to your testers.
 echo ============================================================

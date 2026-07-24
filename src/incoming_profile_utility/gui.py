@@ -302,7 +302,8 @@ class ProfileStudio(ctk.CTk):
     def __init__(self):
         super().__init__()
         ctk.set_appearance_mode("dark"); self.configure(fg_color=NAVY)
-        self._base_title=f"Incoming Profile Utility  {short_version()}"
+        from . import APP_NAME
+        self._base_title=f"{APP_NAME}  {short_version()}"
         self.title(self._base_title); self.geometry("1360x900")
         self._set_app_icon()
         self.protocol("WM_DELETE_WINDOW", self._on_close)   # wipe the scratch dir on exit
@@ -327,17 +328,47 @@ class ProfileStudio(ctk.CTk):
         ic=ctk.CTkLabel(parent,text="ⓘ",font=self.uf,text_color=BLUE_L,cursor="hand2"); ic.grid(row=r,column=1,sticky="w",padx=(0,8)); Tooltip(ic,info)
         widget.grid(row=r,column=2,sticky="ew",padx=(0,8),pady=5)
 
+    def _brand_logo(self, plate_h=38):
+        """The REAL SandBox mark, on a light plate.
+
+        Per the brand rules the mark is never recreated as styled text and its artwork is
+        never altered. It is navy on transparent, which measures 1.66:1 against this dark
+        header (invisible), so rather than recolouring it we set it on a light plate — the
+        original colours are preserved exactly.
+        """
+        from .materials import _base_dir
+        p=_base_dir()/"assets"/"sandbox-logo.png"
+        if not p.exists(): return None
+        try:
+            logo=Image.open(p).convert("RGBA")
+        except Exception:
+            return None
+        pad_y=6; pad_x=12
+        lh=max(1,plate_h-2*pad_y); lw=max(1,int(logo.width*lh/logo.height))
+        logo=logo.resize((lw,lh), Image.LANCZOS)
+        plate=Image.new("RGBA",(lw+2*pad_x, plate_h),(0,0,0,0))
+        ImageDraw.Draw(plate).rounded_rectangle([0,0,plate.width-1,plate_h-1],radius=9,
+                                                fill=(255,255,255,245))
+        plate.alpha_composite(logo,(pad_x,pad_y))
+        return plate
+
     def _header(self):
         h=ctk.CTkFrame(self,fg_color=NAVY_900,corner_radius=0,height=54); h.grid(row=0,column=0,sticky="ew"); h.grid_propagate(False); h.grid_columnconfigure(0,weight=1)
-        b=ctk.CTkFrame(h,fg_color="transparent"); b.grid(row=0,column=0,sticky="w",padx=22,pady=10)
-        ctk.CTkLabel(b,text="SANDBOX · PROFILE STUDIO",font=self.hf,text_color=ON).pack(anchor="w")
-        pill=ctk.CTkFrame(h,fg_color=GREEN,corner_radius=999); pill.grid(row=0,column=1,sticky="e",padx=22)
+        b=ctk.CTkFrame(h,fg_color="transparent"); b.grid(row=0,column=0,sticky="w",padx=22,pady=8)
+        logo=self._brand_logo(38)
+        if logo is not None:
+            self._logo_img=ctk.CTkImage(light_image=logo,dark_image=logo,size=logo.size)
+            ctk.CTkLabel(b,image=self._logo_img,text="").pack(side="left",padx=(0,14))
+        else:                                    # asset missing: product name only, never a
+            pass                                 # text stand-in for the mark
+        ctk.CTkLabel(b,text="Profile Studio",font=self.hf,text_color=ON).pack(side="left")
         from . import short_version, version_string
+        pill=ctk.CTkFrame(h,fg_color=GREEN,corner_radius=999); pill.grid(row=0,column=1,sticky="e",padx=22)
         vlbl=ctk.CTkLabel(pill,text=short_version(),font=self.mono,text_color=GREEN_INK); vlbl.pack(padx=12,pady=3)
         Tooltip(vlbl, version_string())
 
     def _set_title(self, suffix=""):
-        base=getattr(self,"_base_title","Incoming Profile Utility")
+        base=getattr(self,"_base_title","Profile Studio")
         self.title(f"{base} — {suffix}" if suffix else base)
 
     def _card(self,parent,title):
@@ -742,7 +773,9 @@ class ProfileStudio(ctk.CTk):
         return (sx,sy)
 
     def _footer(self):
-        ctk.CTkLabel(self,text="Symmetric · 24-bit BMP · 2D-polygon process model",font=self.eb,text_color=MUT).grid(row=3,column=0,sticky="w",padx=22,pady=(0,10))
+        from . import version_string
+        ctk.CTkLabel(self,text=f"Symmetric · 24-bit BMP · 2D-polygon process model    ·    {version_string()}",
+                     font=self.eb,text_color=MUT).grid(row=3,column=0,sticky="w",padx=22,pady=(0,10))
 
     # ---- material stack ----
     def _add_matlayer(self, material="silicon", thickness=20, capture=True):

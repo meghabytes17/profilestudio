@@ -1,6 +1,6 @@
 # Packaging for testers
 
-Two ways to get a standalone **`IncomingProfileUtility.exe`** that testers can run without
+Two ways to get a standalone **`ProfileStudio.exe`** that testers can run without
 installing Python.
 
 ## Option A — build the .exe on Windows (one command)
@@ -14,7 +14,7 @@ build_exe.bat
 That creates a virtualenv, installs the app + PyInstaller, and produces a single file:
 
 ```
-dist\IncomingProfileUtility.exe
+dist\ProfileStudio.exe
 ```
 
 Send that one file to your testers. (On Linux/macOS, `./build_exe.sh` produces the
@@ -27,7 +27,7 @@ must be built on Windows.)
 runner. Two triggers:
 
 - **Manual:** on GitHub, open **Actions → build-exe → Run workflow**. When it finishes,
-  download the `IncomingProfileUtility-windows` artifact from that run — it contains the
+  download the `ProfileStudio-windows` artifact from that run — it contains the
   `.exe`.
 - **Release:** `git tag v0.1.0 && git push --tags` builds the `.exe` and attaches it to a
   GitHub Release for that tag, so testers can download it from the Releases page.
@@ -42,7 +42,7 @@ This is the easiest way to hand out a build without setting anything up locally.
   first run — click *More info → Run anyway*. Code-signing removes this but needs a
   certificate.
 - **User-added materials** (from “+ New material”) are saved to
-  `%LOCALAPPDATA%\IncomingProfileUtility\user_materials.json`, so they persist across
+  `%LOCALAPPDATA%\ProfileStudio\user_materials.json` (migrated automatically from the old `IncomingProfileUtility` folder), so they persist across
   runs and never touch the bundled base palette.
 - The exe is large (~150–200 MB) because it bundles NumPy, pandas, OpenCV, and Shapely.
 
