@@ -29,7 +29,7 @@ def _user_dir() -> Path:
         d = Path(root) / "ProfileStudio"
         legacy = Path(root) / "IncomingProfileUtility"      # pre-rename location
         if legacy.is_dir() and not d.exists():
-            try:                                            # carry over saved materials/colours
+            try:                                            # carry over saved materials/colors
                 import shutil
                 shutil.copytree(legacy, d)
             except OSError:
@@ -67,7 +67,7 @@ class Palette:
         self._mats = data["materials"]
         self.defaults = data.get("defaults", {})
         self._base_keys = set(base_keys) if base_keys is not None else set(self._mats.keys())
-        # pristine shipped values, so we can tell a recoloured base material from an untouched
+        # pristine shipped values, so we can tell a recolored base material from an untouched
         # one (and offer 'reset to default')
         import copy
         self._base_mats = copy.deepcopy(base_mats if base_mats is not None
@@ -93,12 +93,12 @@ class Palette:
         r, g, b = self.rgb(name)
         return f"#{r:02X}{g:02X}{b:02X}"
 
-    # --- editing / persistence (used by the GUI's "add material" / "change colour") ---
+    # --- editing / persistence (used by the GUI's "add material" / "change color") ---
     def add(self, name: str, rgb, label: str | None = None) -> None:
         self._mats[name] = {"rgb": list(rgb), "label": label or name}
 
     def set_rgb(self, name: str, rgb) -> None:
-        """Recolour an existing material, keeping its label."""
+        """Recolor an existing material, keeping its label."""
         if name in self._mats:
             self._mats[name]["rgb"] = list(rgb)
 
@@ -106,12 +106,12 @@ class Palette:
         return name in self._base_keys
 
     def is_modified(self, name: str) -> bool:
-        """True if a BASE material has been recoloured away from the shipped palette."""
+        """True if a BASE material has been recolored away from the shipped palette."""
         base = self._base_mats.get(name)
         return bool(base) and list(base.get("rgb", [])) != list(self._mats.get(name, {}).get("rgb", []))
 
     def reset_to_base(self, name: str) -> bool:
-        """Restore a base material's shipped colour. Returns True if anything changed."""
+        """Restore a base material's shipped color. Returns True if anything changed."""
         base = self._base_mats.get(name)
         if not base or not self.is_modified(name):
             return False
@@ -123,12 +123,12 @@ class Palette:
 
     def user_materials(self) -> dict:
         """What must be persisted: materials the user added, PLUS base materials they have
-        recoloured (otherwise a recoloured base material would be lost on restart)."""
+        recolored (otherwise a recolored base material would be lost on restart)."""
         return {k: v for k, v in self._mats.items()
                 if k not in self._base_keys or self.is_modified(k)}
 
     def save(self, path: str | Path | None = None) -> None:
-        """Persist user-added materials and user recolours, to the untracked user config,
+        """Persist user-added materials and user recolors, to the untracked user config,
         so the tracked base palette (config/materials.json) is never modified."""
         p = Path(path) if path else _USER_CONFIG
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -144,8 +144,8 @@ def load_palette(path: str | Path | None = None) -> Palette:
         data = _FALLBACK
     base_keys = set(data["materials"].keys())
     import copy
-    base_mats = copy.deepcopy(data["materials"])       # pristine shipped colours
-    try:                    # merge user additions AND user recolours (these override the base)
+    base_mats = copy.deepcopy(data["materials"])       # pristine shipped colors
+    try:                    # merge user additions AND user recolors (these override the base)
         user = json.loads(_USER_CONFIG.read_text())
         for k, v in user.get("materials", {}).items():
             data["materials"][k] = v

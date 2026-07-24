@@ -494,7 +494,7 @@ def export_polygons(state: State, palette, svg_path=None, json_path=None, precis
 
     Coordinates are in nanometres (the model's units). The SVG uses a y-down transform so
     it opens right-side-up in Inkscape / Illustrator for precise vertex edits; each material
-    is one <path> group filled with its palette colour. The JSON keeps exact per-material
+    is one <path> group filled with its palette color. The JSON keeps exact per-material
     ring coordinates ([[x, y], ...] with holes as separate inner rings). Returns a dict of
     {material: [ {"exterior": [...], "holes": [[...], ...]}, ... ]}.
     """

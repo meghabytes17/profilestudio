@@ -408,12 +408,23 @@ def test_show_error_keeps_detail_off_screen(tmp_path):
 # Branding: real logo, product name, exe name
 # --------------------------------------------------------------------------- #
 def test_real_logo_asset_ships_and_is_bundled():
-    logo = ROOT / "assets" / "sandbox-logo.png"
-    assert logo.exists(), "the real sandbox-logo.png must ship with the app"
-    im = Image.open(logo)
-    assert im.mode in ("RGBA", "LA") or "transparency" in im.info, "logo should be transparent"
+    for fn in ("sandbox-logo.png", "sandbox-logo-white.png"):
+        logo = ROOT / "assets" / fn
+        assert logo.exists(), f"{fn} must ship with the app"
+        im = Image.open(logo)
+        assert im.mode in ("RGBA", "LA") or "transparency" in im.info, f"{fn} should be transparent"
     spec = (ROOT / "incoming_profile_utility.spec").read_text()
-    assert "assets/sandbox-logo.png" in spec, "logo not bundled into the .exe"
+    assert "assets/sandbox-logo.png" in spec and "assets/sandbox-logo-white.png" in spec, \
+        "both logo variants must be bundled into the .exe"
+
+
+def test_white_logo_is_light_for_dark_header():
+    """The header is dark; the reversed logo must be near-white so it reads without a plate."""
+    import numpy as np
+    a = np.asarray(Image.open(ROOT / "assets" / "sandbox-logo-white.png").convert("RGBA"))
+    ink = a[a[:, :, 3] > 200][:, :3]
+    assert len(ink), "white logo has no opaque ink"
+    assert ink.mean() > 220, "reversed logo should be near-white"
 
 
 def test_mark_is_not_recreated_as_styled_text():

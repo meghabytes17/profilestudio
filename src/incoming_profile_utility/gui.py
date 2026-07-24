@@ -148,7 +148,7 @@ class MaterialLayerRow:
         self.sw=ctk.CTkFrame(top, width=16, height=16, corner_radius=3, fg_color=app.palette.hex(material), border_width=1, border_color=NAVY_700)
         self.sw.configure(cursor="hand2")
         self.sw.bind("<Button-1>", lambda e: app._edit_material_color(self.mat.get()))
-        Tooltip(self.sw, "Click to change this material's colour (applies everywhere it's used).")
+        Tooltip(self.sw, "Click to change this material's color (applies everywhere it's used).")
         self.sw.pack(side="left", padx=(0,6)); self.sw.pack_propagate(False)
         for sym,cmd in (("✕",lambda:app._remove_matlayer(self)),("↓",lambda:app._move_matlayer(self,1)),("↑",lambda:app._move_matlayer(self,-1))):
             ctk.CTkButton(top, text=sym, width=26, font=app.uf, fg_color="transparent", border_width=1,
@@ -328,34 +328,40 @@ class ProfileStudio(ctk.CTk):
         ic=ctk.CTkLabel(parent,text="ⓘ",font=self.uf,text_color=BLUE_L,cursor="hand2"); ic.grid(row=r,column=1,sticky="w",padx=(0,8)); Tooltip(ic,info)
         widget.grid(row=r,column=2,sticky="ew",padx=(0,8),pady=5)
 
-    def _brand_logo(self, plate_h=38):
-        """The REAL SandBox mark, on a light plate.
+    def _brand_logo(self, target_h=30):
+        """The REAL SandBox mark, placed directly on the dark header.
 
-        Per the brand rules the mark is never recreated as styled text and its artwork is
-        never altered. It is navy on transparent, which measures 1.66:1 against this dark
-        header (invisible), so rather than recolouring it we set it on a light plate — the
-        original colours are preserved exactly.
+        Uses the official white (reversed) logo supplied for dark backgrounds — white on
+        transparent, ~18:1 against the header. The artwork is never recreated or recolored;
+        we just scale it. Falls back to the navy logo on a light plate if the white asset is
+        ever missing, so a dark-on-dark invisible mark can't happen.
         """
         from .materials import _base_dir
-        p=_base_dir()/"assets"/"sandbox-logo.png"
+        adir=_base_dir()/"assets"
+        white=adir/"sandbox-logo-white.png"
+        if white.exists():
+            try:
+                logo=Image.open(white).convert("RGBA")
+                lh=target_h; lw=max(1,int(logo.width*lh/logo.height))
+                return logo.resize((lw,lh), Image.LANCZOS)          # straight onto the header
+            except Exception:
+                pass
+        p=adir/"sandbox-logo.png"                                   # fallback: navy on a plate
         if not p.exists(): return None
-        try:
-            logo=Image.open(p).convert("RGBA")
-        except Exception:
-            return None
-        pad_y=6; pad_x=12
+        try: logo=Image.open(p).convert("RGBA")
+        except Exception: return None
+        plate_h=target_h+8; pad_y=6; pad_x=12
         lh=max(1,plate_h-2*pad_y); lw=max(1,int(logo.width*lh/logo.height))
         logo=logo.resize((lw,lh), Image.LANCZOS)
         plate=Image.new("RGBA",(lw+2*pad_x, plate_h),(0,0,0,0))
-        ImageDraw.Draw(plate).rounded_rectangle([0,0,plate.width-1,plate_h-1],radius=9,
-                                                fill=(255,255,255,245))
+        ImageDraw.Draw(plate).rounded_rectangle([0,0,plate.width-1,plate_h-1],radius=9,fill=(255,255,255,245))
         plate.alpha_composite(logo,(pad_x,pad_y))
         return plate
 
     def _header(self):
         h=ctk.CTkFrame(self,fg_color=NAVY_900,corner_radius=0,height=54); h.grid(row=0,column=0,sticky="ew"); h.grid_propagate(False); h.grid_columnconfigure(0,weight=1)
         b=ctk.CTkFrame(h,fg_color="transparent"); b.grid(row=0,column=0,sticky="w",padx=22,pady=8)
-        logo=self._brand_logo(38)
+        logo=self._brand_logo(30)
         if logo is not None:
             self._logo_img=ctk.CTkImage(light_image=logo,dark_image=logo,size=logo.size)
             ctk.CTkLabel(b,image=self._logo_img,text="").pack(side="left",padx=(0,14))
@@ -745,7 +751,7 @@ class ProfileStudio(ctk.CTk):
         if getattr(self,"_snap_for",None) is base: return          # already built for this image
         import numpy as np
         a=np.asarray(base.convert("RGB")).astype(np.int16)
-        # a pixel is an edge if it differs from its right or lower neighbour (colour change)
+        # a pixel is an edge if it differs from its right or lower neighbour (color change)
         dx=np.any(a[:,1:,:]!=a[:,:-1,:],axis=2); dy=np.any(a[1:,:,:]!=a[:-1,:,:],axis=2)
         edge=np.zeros(a.shape[:2],bool)
         edge[:,:-1]|=dx; edge[:,1:]|=dx; edge[:-1,:]|=dy; edge[1:,:]|=dy
@@ -969,17 +975,17 @@ class ProfileStudio(ctk.CTk):
         ctk.CTkButton(bar,text="Done",command=dlg.destroy,font=self.ub,width=90,fg_color=GREEN,hover_color=GREEN_D,text_color=GREEN_INK).pack(side="left",padx=2)
 
     def _edit_material_color(self, name):
-        """Recolour an EXISTING material. Applies everywhere that material is used, updates
+        """Recolor an EXISTING material. Applies everywhere that material is used, updates
         every swatch/legend/preview, and persists (base materials are saved as overrides so
         the shipped palette file is never touched)."""
         from tkinter.colorchooser import askcolor
         if not name or name not in self.palette.names(): return
         start=self.palette.rgb(name)
-        dlg=ctk.CTkToplevel(self); dlg.title(f"Colour — {name}"); dlg.geometry("380x210")
+        dlg=ctk.CTkToplevel(self); dlg.title(f"Color — {name}"); dlg.geometry("460x230"); dlg.minsize(460,230)
         dlg.configure(fg_color=NAVY_800); dlg.transient(self); dlg.grab_set()
-        ctk.CTkLabel(dlg,text=f"Colour of “{name}”",font=self.ub,text_color=ON).pack(anchor="w",padx=16,pady=(14,2))
+        ctk.CTkLabel(dlg,text=f"Color of “{name}”",font=self.ub,text_color=ON).pack(anchor="w",padx=16,pady=(14,2))
         ctk.CTkLabel(dlg,text="Changes every layer and process step using this material.",
-                     font=self.eb,text_color=MUT).pack(anchor="w",padx=16,pady=(0,8))
+                     font=self.eb,text_color=MUT,wraplength=420,justify="left",anchor="w").pack(fill="x",anchor="w",padx=16,pady=(0,8))
         cur={"rgb":tuple(start)}
         row=ctk.CTkFrame(dlg,fg_color="transparent"); row.pack(fill="x",padx=16,pady=(2,2))
         sw=ctk.CTkFrame(row,fg_color=self.palette.hex(name),width=40,height=28,corner_radius=6,
@@ -999,7 +1005,7 @@ class ProfileStudio(ctk.CTk):
             else: sw.configure(border_color="#E58B8B")
         hex_e.bind("<KeyRelease>", _on_hex)
         def pick():
-            rgb,_=askcolor(color=f"#{cur['rgb'][0]:02X}{cur['rgb'][1]:02X}{cur['rgb'][2]:02X}",parent=dlg,title=f"Colour — {name}")
+            rgb,_=askcolor(color=f"#{cur['rgb'][0]:02X}{cur['rgb'][1]:02X}{cur['rgb'][2]:02X}",parent=dlg,title=f"Color — {name}")
             if rgb: _apply(tuple(int(c) for c in rgb))
         ctk.CTkButton(row,text="Pick…",command=pick,width=64,font=self.uf,fg_color="transparent",
                       border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",padx=(8,0))
@@ -1021,14 +1027,14 @@ class ProfileStudio(ctk.CTk):
                           border_width=1,border_color=BLUE_L,text_color=SOFT,hover_color=NAVY_700).pack(side="left")
 
     def _apply_material_color(self, name, rgb, already_set=False):
-        """Commit a colour change: palette -> persist -> refresh every swatch -> re-render."""
+        """Commit a color change: palette -> persist -> refresh every swatch -> re-render."""
         if not already_set: self.palette.set_rgb(name, rgb)
         try: self.palette.save()
         except OSError: pass
         for r in self.matlayer_rows:                       # refresh row swatches
             try: r.sw.configure(fg_color=self.palette.hex(r.mat.get()))
             except Exception: pass
-        self._full_img=None                                # colour changed: cached render is stale
+        self._full_img=None                                # color changed: cached render is stale
         self.render_preview()                              # redraws the preview and the legend
 
     def _show_error(self, widget, message, exc, color=None):
@@ -1091,7 +1097,7 @@ class ProfileStudio(ctk.CTk):
             rgb,_=askcolor(color=f"#{chosen['rgb'][0]:02X}{chosen['rgb'][1]:02X}{chosen['rgb'][2]:02X}", parent=dlg, title="Pick color")
             if rgb: _apply(tuple(int(c) for c in rgb))
         ctk.CTkButton(row,text="Pick…",command=pick,width=64,font=self.uf,fg_color="transparent",border_width=1,border_color=BLUE_L,text_color=ON,hover_color=NAVY_700).pack(side="left",padx=(8,0))
-        Tooltip(hex_e,"Type a hex colour (e.g. #4FD093 or 4fd093, short #4d9 also works), or use Pick…")
+        Tooltip(hex_e,"Type a hex color (e.g. #4FD093 or 4fd093, short #4d9 also works), or use Pick…")
 
         def commit():
             nm=name_e.get().strip().lower().replace(" ","_")
@@ -1207,7 +1213,7 @@ class ProfileStudio(ctk.CTk):
             for w in (sw,lbl):
                 w.configure(cursor="hand2")
                 w.bind("<Button-1>", lambda e,m=mat: self._edit_material_color(m))
-            Tooltip(sw, f"Click to change the colour of “{mat}”.")
+            Tooltip(sw, f"Click to change the color of “{mat}”.")
 
     def _schedule_render(self,_e=None):
         if getattr(self,"_job",None): self.after_cancel(self._job)

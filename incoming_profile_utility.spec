@@ -10,7 +10,7 @@ base palette is available at runtime.
 """
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-datas = [("config/materials.json", "config"), ("assets/icon.png", "assets"), ("assets/icon.ico", "assets"), ("assets/sandbox-logo.png", "assets")]
+datas = [("config/materials.json", "config"), ("assets/icon.png", "assets"), ("assets/icon.ico", "assets"), ("assets/sandbox-logo.png", "assets"), ("assets/sandbox-logo-white.png", "assets")]
 datas += collect_data_files("customtkinter")          # themes / assets
 
 hiddenimports = collect_submodules("customtkinter") + [
