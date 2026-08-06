@@ -9,8 +9,8 @@ and render them to .bmp.
 # set __build_date__ to that day. Everything else (title bar, header, About,
 # .exe metadata) reads from here, so a screenshot always reveals the exact build.
 # ---------------------------------------------------------------------------
-__version__ = "1.1.0"
-__build_date__ = "2026-07-24"          # ISO date of this build
+__version__ = "1.2.0"
+__build_date__ = "2026-08-06"          # ISO date of this build
 APP_NAME = "Profile Studio"
 
 

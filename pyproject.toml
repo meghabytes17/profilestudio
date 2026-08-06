@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "incoming-profile-utility"
-version = "1.1.0"
+version = "1.2.0"
 description = "Generate symmetric semiconductor cross-section profiles from CSV/parametric input and render them to .bmp"
 readme = "README.md"
 requires-python = ">=3.10"
