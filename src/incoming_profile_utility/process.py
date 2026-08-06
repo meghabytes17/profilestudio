@@ -31,7 +31,8 @@ from ._curves import half_width_curve  # shared with parametric (see below)
 @dataclass
 class State:
     cell: Polygon
-    regions: list = field(default_factory=list)   # ordered (material, geometry), painted bottom->top
+    # ordered (material, geometry), painted bottom->top
+    regions: list = field(default_factory=list)
 
     def solid(self):
         geoms = [g for _, g in self.regions if not g.is_empty]
@@ -137,18 +138,22 @@ def _corner_cut(shape_list, cx, top, bottom=None):
         k = t.get("kind")
         if k == "chamfer":
             s = _fit(float(t.get("s", 0) or 0))
-            if s > 0: cuts.append(Polygon([(cx, top), (cx + s, top), (cx, top - s)]))
+            if s > 0:
+                cuts.append(Polygon([(cx, top), (cx + s, top), (cx, top - s)]))
         elif k == "facet":
-            ang = math.radians(float(t.get("angle", 45) or 45)); d = _fit(float(t.get("depth", 0) or 0))
+            ang = math.radians(float(t.get("angle", 45) or 45))
+            d = _fit(float(t.get("depth", 0) or 0))
             if d > 0 and 0 < ang < math.pi / 2:
                 run = d / math.tan(ang)
                 cuts.append(Polygon([(cx, top), (cx + run, top), (cx, top - d)]))
         elif k == "round":
             r = _fit(float(t.get("r", 0) or 0))
             if r > 0:
-                cuts.append(box(cx, top - r, cx + r, top).difference(Point(cx + r, top - r).buffer(r, quad_segs=32)))
+                cuts.append(box(cx, top - r, cx + r, top).difference(Point(cx +
+                            r, top - r).buffer(r, quad_segs=32)))
         elif k == "taper":
-            ang = float(t.get("angle", 80) or 0)     # sidewall angle from HORIZONTAL base; 90 = vertical
+            # sidewall angle from HORIZONTAL base; 90 = vertical
+            ang = float(t.get("angle", 80) or 0)
             if bottom is not None and top > bottom and 0 < ang < 90:
                 run = (top - bottom) / math.tan(math.radians(ang))
                 cuts.append(Polygon([(cx, top), (cx + run, top), (cx, bottom)]))
@@ -199,7 +204,8 @@ def _build_material_stack(p: dict) -> State:
     else:
         depth = p.get("opening_depth")
         open_bottom = 0.0 if (depth is None or depth <= 0 or depth >= total) else (total - depth)
-        opening = _rect_opening(space, open_bottom, total, p.get("opening_bottom_radius", 0) or 0) if space > 0 else None
+        opening = _rect_opening(space, open_bottom, total, p.get(
+            "opening_bottom_radius", 0) or 0) if space > 0 else None
     if opening is not None and not opening.is_valid:
         opening = opening.buffer(0)
     cell = box(-pitch / 2, 0, pitch / 2, max(total + top_vac, 1.0))
@@ -211,18 +217,22 @@ def _build_material_stack(p: dict) -> State:
     wall_bottom = open_bottom + bottom_r
     y = 0.0
     for l in reversed(layers):            # last row -> bottom, first row -> top
-        th = l["thickness"]; top = y + th
+        th = l["thickness"]
+        top = y + th
         band = box(-pitch / 2, y, pitch / 2, top)
         if opening is not None:
             band = band.difference(opening)
         shape = l.get("shape")
         if shape and trace is None and space > 0 and top > open_bottom:
-            cut_bottom = max(y, wall_bottom)                       # taper stops at the straight-wall bottom
+            # taper stops at the straight-wall bottom
+            cut_bottom = max(y, wall_bottom)
             if top > cut_bottom:
                 rc = _corner_cut(shape, space / 2, top, cut_bottom)
                 if rc is not None:
-                    rc = rc.intersection(box(-pitch / 2, cut_bottom, pitch / 2, top))  # never below the wall
-                    if not rc.is_valid: rc = rc.buffer(0)
+                    # never below the wall
+                    rc = rc.intersection(box(-pitch / 2, cut_bottom, pitch / 2, top))
+                    if not rc.is_valid:
+                        rc = rc.buffer(0)
                     if not rc.is_empty:
                         lc = affinity.scale(rc, xfact=-1, origin=(0, 0))   # symmetric mirror
                         band = band.difference(rc).difference(lc)
@@ -247,7 +257,8 @@ def build_base(p: dict) -> State:
     mask_layers = p.get("mask_layers")
     if mask_layers is None:
         mh = p.get("mask_height", 0.0)
-        mask_layers = [dict(material=p.get("mask_material", "hardmask"), height=mh)] if mh > 0 else []
+        mask_layers = [dict(material=p.get("mask_material", "hardmask"),
+                            height=mh)] if mh > 0 else []
     mask_layers = [l for l in mask_layers if l.get("height", 0) > 0]
     total_mask = sum(l["height"] for l in mask_layers)
     total_h = H + total_mask
@@ -262,7 +273,8 @@ def build_base(p: dict) -> State:
         return st
 
     ys = np.linspace(0, H, 240)
-    xs = half_width_curve(ys, H, bottom, top, p.get("bow"), p.get("bow_height"), p.get("mid_width"))
+    xs = half_width_curve(ys, H, bottom, top, p.get(
+        "bow"), p.get("bow_height"), p.get("mid_width"))
     feature = Polygon([(x, y) for x, y in zip(xs, ys)] + [(-x, y) for x, y in zip(xs, ys)][::-1])
 
     if base_type == "line":
@@ -273,10 +285,13 @@ def build_base(p: dict) -> State:
     # mask stack — each layer is a band; only the TOP layer gets the corner shape,
     # and (for a trench) the trench opening is carved through every layer.
     mask_width = p.get("mask_width", pitch)
-    corner = p.get("mask_corner", "square"); fa = p.get("mask_facet_angle", 45.0); rad = p.get("mask_radius", 0.0)
+    corner = p.get("mask_corner", "square")
+    fa = p.get("mask_facet_angle", 45.0)
+    rad = p.get("mask_radius", 0.0)
     y = H
     for idx, layer in enumerate(mask_layers):
-        lh = layer["height"]; is_top = idx == len(mask_layers) - 1
+        lh = layer["height"]
+        is_top = idx == len(mask_layers) - 1
         if is_top and corner != "square":
             mp = mask_polygon(mask_width, lh, y, corner, fa, rad)
         else:
@@ -310,8 +325,10 @@ def conformal_deposit(state: State, material: str, thickness: float) -> State:
     ext = box(minx, miny, maxx, maxy + thickness)                # room for top coating
     film = s.buffer(thickness, join_style=2).difference(s).intersection(ext)
     newtop = max(maxy, film.bounds[3] if not film.is_empty else maxy)
-    st = state.copy(); st.cell = box(minx, miny, maxx, newtop)
-    st.regions.append((material, film)); return st
+    st = state.copy()
+    st.cell = box(minx, miny, maxx, newtop)
+    st.regions.append((material, film))
+    return st
 
 
 def planar_deposit(state: State, material: str, thickness: float) -> State:
@@ -320,7 +337,8 @@ def planar_deposit(state: State, material: str, thickness: float) -> State:
     minx, _, maxx, _ = state.cell.bounds
     st = state.copy()
     st.ensure_top(top_y + thickness)                 # give the slab headroom
-    st.add(material, box(minx, top_y, maxx, top_y + thickness)); return st
+    st.add(material, box(minx, top_y, maxx, top_y + thickness))
+    return st
 
 
 def fill(state: State, material: str, overfill: float = 0.0, up_to: float | None = None) -> State:
@@ -337,7 +355,9 @@ def fill(state: State, material: str, overfill: float = 0.0, up_to: float | None
         surface = max((g.bounds[3] for _, g in state.regions), default=miny)
         level = min(maxy, surface + max(0.0, overfill))
     region = state.open().intersection(box(minx, miny, maxx, level))
-    st = state.copy(); st.add(material, region); return st
+    st = state.copy()
+    st.add(material, region)
+    return st
 
 
 def etch(state: State, depth: float, anisotropy: float = 1.0,
@@ -348,12 +368,15 @@ def etch(state: State, depth: float, anisotropy: float = 1.0,
     which material is etched — if given, only that material is removed (the etch stops
     on other materials); None/"(any)" etches everything exposed.
     """
-    if mode == "isotropic": anisotropy = 0.0
-    elif mode == "anisotropic": anisotropy = 1.0
+    if mode == "isotropic":
+        anisotropy = 0.0
+    elif mode == "anisotropic":
+        anisotropy = 1.0
     a = min(max(float(anisotropy), 0.0), 1.0)
     op = state.open()
     if a <= 1e-6:
-        removal = op.buffer(depth, join_style=1)              # isotropic: equal in all directions, rounded
+        # isotropic: equal in all directions, rounded
+        removal = op.buffer(depth, join_style=1)
     else:
         removal = _extrude_down(op, depth)                    # vertical component
         lateral = depth * (1.0 - a)
@@ -365,7 +388,8 @@ def etch(state: State, depth: float, anisotropy: float = 1.0,
     for m, g in state.regions:
         if tgt is None or m == tgt:
             gg = g.difference(removal)
-            if not gg.is_empty: new.append((m, gg))
+            if not gg.is_empty:
+                new.append((m, gg))
         else:
             new.append((m, g))
     return State(state.cell, new)
@@ -376,7 +400,8 @@ def planarize(state: State, at_height: float) -> State:
     minx, miny, maxx, _ = state.cell.bounds
     keep = box(minx, miny, maxx, at_height)
     new = [(m, g.intersection(keep)) for m, g in state.regions]
-    st = State(state.cell, [(m, g) for m, g in new if not g.is_empty]); return st
+    st = State(state.cell, [(m, g) for m, g in new if not g.is_empty])
+    return st
 
 
 OPS = {
@@ -456,7 +481,8 @@ def _downsample_mode(label, ss):
     for v in order:
         cnt = (shifted == v).sum(axis=2).astype(np.int32)
         take = cnt > best
-        out[take] = v; best[take] = cnt[take]
+        out[take] = v
+        best[take] = cnt[take]
     return out - 1
 
 
@@ -517,7 +543,8 @@ def render_regions(state: State, palette, out_path, nm_per_px: float = 0.4, over
     total_h = maxy - miny
     ss = max(1, int(oversample))
     npp = nm_per_px / ss
-    W = int(math.ceil(pitch / npp)); H = int(math.ceil(total_h / npp))
+    W = int(math.ceil(pitch / npp))
+    H = int(math.ceil(total_h / npp))
     cx = pitch / 2
     label = np.full((H, W), -1, np.int32)     # -1 = background / vacuum
     colors = []

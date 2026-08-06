@@ -194,6 +194,7 @@ def test_partial_anisotropy_between_vertical_and_isotropic():
     """0 < anisotropy < 1 should undercut more than vertical, less than isotropic."""
     base = dict(material_layers=[dict(material="silicon", thickness=120)],
                 pitch=200, space=40, top_vacuum=5)
+
     def remaining(a):
         st = evaluate(build_base(base), [dict(op="etch", depth=25, anisotropy=a)])
         return [g for m, g in st.regions if m == "silicon"][0].area
@@ -214,8 +215,10 @@ def test_taper_opens_wider_at_top():
     """A taper on a layer widens its opening toward the top of that layer."""
     from shapely.geometry import box as _box
     layers = [dict(material="silicon", thickness=150, shape=[dict(kind="taper", angle=70)])]
-    st = build_base(dict(material_layers=layers, pitch=200, space=50, top_vacuum=5, opening_depth=150))
+    st = build_base(dict(material_layers=layers, pitch=200,
+                    space=50, top_vacuum=5, opening_depth=150))
     sil = [g for m, g in st.regions if m == "silicon"][0]
+
     def opening_width(y):
         solid = sil.intersection(_box(-100, y - 0.5, 100, y + 0.5)).area   # 1 nm strip
         return 200 - solid
@@ -241,7 +244,9 @@ def test_user_materials_merge_on_reload(tmp_path, monkeypatch):
     """Saved user materials merge back in on the next load, with correct RGB/BGR."""
     import incoming_profile_utility.materials as M
     monkeypatch.setattr(M, "_USER_CONFIG", tmp_path / "user.json")
-    pal = load_palette(); pal.add("mymat", (10, 20, 30)); pal.save()
+    pal = load_palette()
+    pal.add("mymat", (10, 20, 30))
+    pal.save()
     pal2 = load_palette()
     assert "mymat" in pal2.names()
     assert pal2.rgb("mymat") == (10, 20, 30)
@@ -292,8 +297,8 @@ def test_smoothing_introduces_no_blended_colors(tmp_path):
     from incoming_profile_utility.materials import load_palette
     pal = load_palette()
     base = build_base(dict(material_layers=[dict(material="oxide", thickness=200,
-                          shape=[dict(kind="round", r=50)])], pitch=200, space=90,
-                          top_vacuum=40, opening_depth=200, opening_bottom_radius=40))
+                                                 shape=[dict(kind="round", r=50)])], pitch=200, space=90,
+                           top_vacuum=40, opening_depth=200, opening_bottom_radius=40))
     st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=30),
                          dict(op="fill", material="tungsten")])
     allowed = {tuple(pal.bgr(m)) for m, _ in st.regions} | {BLACK}
@@ -319,8 +324,8 @@ def test_color_count_equals_material_count(tmp_path):
     from incoming_profile_utility.materials import load_palette
     pal = load_palette()
     base = build_base(dict(material_layers=[dict(material="hardmask", thickness=110,
-                          shape=[dict(kind="round", r=40)]), dict(material="silicon", thickness=220)],
-                          pitch=220, space=90, top_vacuum=30, opening_depth=110, opening_bottom_radius=40))
+                                                 shape=[dict(kind="round", r=40)]), dict(material="silicon", thickness=220)],
+                           pitch=220, space=90, top_vacuum=30, opening_depth=110, opening_bottom_radius=40))
     st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=25),
                          dict(op="fill", material="tungsten", overfill=0)])
     materials = [m for m, _ in st.regions]
@@ -334,7 +339,8 @@ def test_color_count_equals_material_count(tmp_path):
         assert cols - {BLACK} == mat_colors, f"{ss}x: {cols - {BLACK}} != {mat_colors}"
         # distinct colors == number of materials (+ black background, which this scene has)
         assert BLACK in cols
-        assert len(cols) == len(materials) + 1, f"{ss}x: {len(cols)} colors for {len(materials)} materials"
+        assert len(cols) == len(materials) + \
+            1, f"{ss}x: {len(cols)} colors for {len(materials)} materials"
 
 
 def test_full_cell_fill_has_exactly_material_count_colors(tmp_path):
@@ -364,8 +370,8 @@ def test_no_pixel_belongs_to_two_materials(tmp_path):
     from incoming_profile_utility.materials import load_palette
     pal = load_palette()
     base = build_base(dict(material_layers=[dict(material="hardmask", thickness=120,
-                          shape=[dict(kind="taper", angle=75)]), dict(material="oxide", thickness=220)],
-                          pitch=240, space=110, top_vacuum=10, opening_depth=120, opening_bottom_radius=50))
+                                                 shape=[dict(kind="taper", angle=75)]), dict(material="oxide", thickness=220)],
+                           pitch=240, space=110, top_vacuum=10, opening_depth=120, opening_bottom_radius=50))
     st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=25),
                          dict(op="fill", material="tungsten", overfill=0)])
     regs = st.regions
@@ -391,16 +397,18 @@ def test_reported_grey_over_yellow_boundary_is_clean(tmp_path):
     from incoming_profile_utility.materials import load_palette
     pal = load_palette()
     base = build_base(dict(material_layers=[dict(material="hardmask", thickness=120,
-                          shape=[dict(kind="taper", angle=75)]), dict(material="oxide", thickness=220)],
-                          pitch=240, space=110, top_vacuum=10, opening_depth=120, opening_bottom_radius=50))
+                                                 shape=[dict(kind="taper", angle=75)]), dict(material="oxide", thickness=220)],
+                           pitch=240, space=110, top_vacuum=10, opening_depth=120, opening_bottom_radius=50))
     st = evaluate(base, [])
-    grey = tuple(pal.bgr("hardmask")); yellow = tuple(pal.bgr("oxide"))
+    grey = tuple(pal.bgr("hardmask"))
+    yellow = tuple(pal.bgr("oxide"))
     for ss in (2, 4, 8):
         out = tmp_path / f"gy{ss}.bmp"
         render_regions(st, pal, out, 0.35, oversample=ss)
         cols = _unique_colors(out)
         # only grey, yellow and black may appear — nothing in between
-        assert cols <= {grey, yellow, BLACK}, f"{ss}x produced blends: {cols - {grey, yellow, BLACK}}"
+        assert cols <= {grey, yellow,
+                        BLACK}, f"{ss}x produced blends: {cols - {grey, yellow, BLACK}}"
         assert {grey, yellow} <= cols
 
 
@@ -409,6 +417,7 @@ def test_fill_overfill_controls_height():
     base = build_base(dict(material_layers=[dict(material="oxide", thickness=250)],
                            pitch=200, space=90, top_vacuum=80, opening_depth=250,
                            opening_bottom_radius=45))
+
     def w_top(overfill):
         st = evaluate(base, [dict(op="fill", material="tungsten", overfill=overfill)])
         return [g for m, g in st.regions if m == "tungsten"][0].bounds[3]
@@ -419,16 +428,18 @@ def test_fill_overfill_controls_height():
 
 def test_export_polygons_svg_and_json(tmp_path):
     """Export produces well-formed SVG and JSON with one entry per drawn material."""
-    import json, xml.dom.minidom as minidom
+    import json
+    import xml.dom.minidom as minidom
     from incoming_profile_utility.process import export_polygons
     from incoming_profile_utility.materials import load_palette
     pal = load_palette()
     base = build_base(dict(material_layers=[dict(material="hardmask", thickness=120,
-                          shape=[dict(kind="round", r=40)]), dict(material="silicon", thickness=200)],
-                          pitch=220, space=90, top_vacuum=30, opening_depth=120, opening_bottom_radius=40))
+                                                 shape=[dict(kind="round", r=40)]), dict(material="silicon", thickness=200)],
+                           pitch=220, space=90, top_vacuum=30, opening_depth=120, opening_bottom_radius=40))
     st = evaluate(base, [dict(op="conformal_deposit", material="nitride", thickness=25),
                          dict(op="fill", material="tungsten", overfill=0)])
-    svg = tmp_path / "p.svg"; js = tmp_path / "p.json"
+    svg = tmp_path / "p.svg"
+    js = tmp_path / "p.json"
     data = export_polygons(st, pal, svg_path=svg, json_path=js)
     assert set(data) == {m for m, _ in st.regions}
     minidom.parse(str(svg))                       # raises if malformed

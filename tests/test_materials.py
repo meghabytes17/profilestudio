@@ -25,7 +25,8 @@ def _corners(path):
 
 def test_inverted_is_vacuum_in_material(tmp_path):
     pal = load_palette()
-    p = dict(pitch=90, feature_height=200, bottom_width=30, top_width=45)  # defaults: vacuum in silicon
+    p = dict(pitch=90, feature_height=200, bottom_width=30,
+             top_width=45)  # defaults: vacuum in silicon
     layers, dims = build_profile(p, pal, 0.4)
     out = tmp_path / "inv.bmp"
     rnd.render_layers(layers, dims, out)

@@ -48,5 +48,5 @@ def test_taper_is_linear_without_bow_or_mid(tmp_path):
     render_line(p, tmp_path / "t.bmp", NPP)
     w = _widths(tmp_path / "t.bmp")
     rows = np.where(w > 0)[0]
-    b, m, t = w[rows[-1]], w[rows[len(rows)//2]], w[rows[0]]
+    b, m, t = w[rows[-1]], w[rows[len(rows) // 2]], w[rows[0]]
     assert abs(m - (b + t) / 2) <= 2

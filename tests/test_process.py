@@ -86,7 +86,8 @@ def test_base_types():
 def test_superlattice_from_substrate():
     from incoming_profile_utility.process import build_base, evaluate
     base = build_base(dict(base_type="substrate", pitch=100, feature_height=20, mask_height=0))
-    ops = [dict(op="planar_deposit", material="sige" if i % 2 else "silicon", thickness=15) for i in range(6)]
+    ops = [dict(op="planar_deposit", material="sige" if i %
+                2 else "silicon", thickness=15) for i in range(6)]
     st = evaluate(base, ops)
     assert len(st.regions) == 7                                           # substrate + 6 films
     assert st.solid().bounds[3] > 20                                      # stack grew upward
@@ -124,7 +125,7 @@ def test_selective_etch():
         dict(material="hardmask", thickness=20), dict(material="silicon", thickness=40)],
         pitch=120, space=0, top_vacuum=10))
     a_sil = [g for m, g in base.regions if m == "silicon"][0].area
-    a_hm  = [g for m, g in base.regions if m == "hardmask"][0].area
+    a_hm = [g for m, g in base.regions if m == "hardmask"][0].area
     st = evaluate(base, [dict(op="etch", depth=15, anisotropy=1.0, material="hardmask")])
     reg = dict((m, g.area) for m, g in st.regions)
     assert reg["silicon"] == a_sil            # silicon untouched

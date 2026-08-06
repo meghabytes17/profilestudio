@@ -14,6 +14,7 @@ A parabola through bottom/mid/top covers taper, bow, waist, and re-entrant walls
 All widths are centered -> symmetric by construction (docs/05).
 """
 from __future__ import annotations
+from ._curves import half_width_curve as _half_width
 
 import math
 
@@ -34,7 +35,6 @@ def _resolve_cell(p: dict) -> float:
     raise ValueError("Provide 'pitch', or both 'space' and 'linewidth'.")
 
 
-from ._curves import half_width_curve as _half_width
 def build_line(p: dict, nm_per_px: float):
     """Build (layers, dims) for a single symmetric line profile.
 

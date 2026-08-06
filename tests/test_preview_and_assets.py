@@ -141,7 +141,8 @@ def test_make_icon_is_reproducible(tmp_path):
     """tools/make_icon.py regenerates the assets deterministically."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("mk", ROOT / "tools" / "make_icon.py")
-    mk = importlib.util.module_from_spec(spec); spec.loader.exec_module(mk)
+    mk = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mk)
     ico, png = mk.build(tmp_path)
     assert ico.exists() and png.exists()
     assert Image.open(ico).info.get("sizes")
@@ -213,7 +214,7 @@ def test_parse_hex_accepts_common_forms():
     assert f("#4FD093") == (79, 208, 147)
     assert f("4fd093") == (79, 208, 147)      # no leading hash
     assert f("#4d9") == (68, 221, 153)        # short form expands
-    assert f("  #FFFFFF ") == (255, 255, 255) # whitespace tolerated
+    assert f("  #FFFFFF ") == (255, 255, 255)  # whitespace tolerated
     assert f("000000") == (0, 0, 0)
 
 
@@ -261,7 +262,8 @@ def test_reset_to_base_restores_shipped_colour(tmp_path, monkeypatch):
     M = _fresh_palette(tmp_path, monkeypatch)
     pal = M.load_palette()
     shipped = pal.hex("oxide")
-    pal.set_rgb("oxide", (1, 2, 3)); pal.save()
+    pal.set_rgb("oxide", (1, 2, 3))
+    pal.save()
     pal = M.load_palette()
     assert pal.reset_to_base("oxide") is True
     assert pal.hex("oxide") == shipped
@@ -275,7 +277,9 @@ def test_base_palette_file_is_never_written(tmp_path, monkeypatch):
     M = _fresh_palette(tmp_path, monkeypatch)
     tracked = ROOT / "config" / "materials.json"
     before = tracked.read_bytes()
-    pal = M.load_palette(); pal.set_rgb("silicon", (9, 9, 9)); pal.save()
+    pal = M.load_palette()
+    pal.set_rgb("silicon", (9, 9, 9))
+    pal.save()
     assert tracked.read_bytes() == before
 
 
@@ -412,7 +416,8 @@ def test_real_logo_asset_ships_and_is_bundled():
         logo = ROOT / "assets" / fn
         assert logo.exists(), f"{fn} must ship with the app"
         im = Image.open(logo)
-        assert im.mode in ("RGBA", "LA") or "transparency" in im.info, f"{fn} should be transparent"
+        assert im.mode in (
+            "RGBA", "LA") or "transparency" in im.info, f"{fn} should be transparent"
     spec = (ROOT / "incoming_profile_utility.spec").read_text()
     assert "assets/sandbox-logo.png" in spec and "assets/sandbox-logo-white.png" in spec, \
         "both logo variants must be bundled into the .exe"
@@ -497,7 +502,8 @@ def test_flat_interface_under_opening_is_a_straight_line(tmp_path):
         if len(col):
             tops.append(int(col.min()))
     assert tops, "silicon not rendered"
-    assert max(tops) - min(tops) == 0, f"silicon top is not a straight line: spread {max(tops)-min(tops)}px"
+    assert max(
+        tops) - min(tops) == 0, f"silicon top is not a straight line: spread {max(tops) - min(tops)}px"
     # and still exactly the palette colors (no blending introduced by the straightening pass)
     assert len({tuple(c) for c in np.unique(im.reshape(-1, 3), axis=0)}) == 3
 
@@ -527,8 +533,8 @@ def test_straightening_preserves_thin_layers(tmp_path):
     import numpy as np
     pal = load_palette()
     p = dict(material_layers=[dict(material="hardmask", thickness=27.94),
-                             dict(material="silicon", thickness=50),
-                             dict(material="hardmask", thickness=1)],
+                              dict(material="silicon", thickness=50),
+                              dict(material="hardmask", thickness=1)],
              pitch=51, space=20, top_vacuum=1, opening_depth=25)
     st = evaluate(build_base(p), [])
     out = tmp_path / "thin.bmp"
