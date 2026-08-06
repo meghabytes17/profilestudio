@@ -15,12 +15,24 @@ datas += collect_data_files("customtkinter")          # themes / assets
 
 hiddenimports = collect_submodules("customtkinter") + [
     "PIL._tkinter_finder", "shapely", "cv2", "pandas", "numpy",
+    "license_usher", "recipe_finder.license_usher",   # license check (see licensing.py)
 ]
+
+# The license extension ships as a compiled module dropped in the repo root rather than as
+# an installed package, so PyInstaller cannot find it by import alone. Bundle the file(s)
+# next to the app's own modules. If it is installed as a package instead, the hiddenimports
+# above cover it and this glob simply finds nothing.
+from pathlib import Path as _P
+binaries = [(str(_p), ".") for _p in
+            [*_P(".").glob("license_usher*.pyd"), *_P(".").glob("license_usher*.so")]]
+if not binaries:
+    print("[spec] WARNING: no license_usher extension found in the repo root — the built app "
+          "will refuse to start with 'license component missing'.")
 
 a = Analysis(
     ["run_gui.py"],
     pathex=["src"],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

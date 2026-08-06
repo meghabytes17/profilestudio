@@ -429,9 +429,19 @@ def test_white_logo_is_light_for_dark_header():
 
 def test_mark_is_not_recreated_as_styled_text():
     """Brand rule: use the real mark, never a text stand-in for it."""
-    src = (ROOT / "src" / "incoming_profile_utility" / "gui.py").read_text()
+    pkg = ROOT / "src" / "incoming_profile_utility"
+    src = (pkg / "gui.py").read_text() + (pkg / "theme.py").read_text()
     assert "SANDBOX · PROFILE STUDIO" not in src
     assert "sandbox-logo.png" in src, "header should load the real logo asset"
+
+
+def test_every_window_uses_the_shared_brand_theme():
+    """The license screen is a second window: it must look like the app, not reinvent it."""
+    pkg = ROOT / "src" / "incoming_profile_utility"
+    for name in ("gui.py", "license_gui.py"):
+        src = (pkg / name).read_text()
+        assert "from .theme import" in src, f"{name} should take its colors from theme.py"
+        assert 'NAVY="#' not in src, f"{name} should not redefine brand colors"
 
 
 def test_executable_is_named_profile_studio():

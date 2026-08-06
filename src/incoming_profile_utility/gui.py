@@ -19,9 +19,8 @@ from .materials import load_palette
 from .io_csv import load_trace
 from . import process as proc
 
-NAVY="#0E1B2E"; NAVY_900="#0B1626"; NAVY_800="#132540"; NAVY_700="#1C2C46"
-BLUE="#283D5D"; BLUE_L="#6E90C6"; GREEN="#4FD093"; GREEN_D="#0E7A49"; GREEN_INK="#07271A"
-ON="#FFFFFF"; SOFT="#AEB9C8"; MUT="#8B99AC"
+from .theme import (NAVY, NAVY_900, NAVY_800, NAVY_700, BLUE, BLUE_L, GREEN, GREEN_D,
+                    GREEN_INK, ON, SOFT, MUT, brand_logo)
 
 FIELDS = [
     ("pitch","Pitch (nm)","120","Width of one repeating unit cell = line + opening."),
@@ -299,7 +298,10 @@ class OpList:
 
 
 class ProfileStudio(ctk.CTk):
-    def __init__(self):
+    def __init__(self, build=True):
+        """build=False creates the window and its state but no widgets, so the license
+        screen can run first over a hidden root (see launch()) without this window
+        rendering a preview behind it."""
         super().__init__()
         ctk.set_appearance_mode("dark"); self.configure(fg_color=NAVY)
         from . import APP_NAME
@@ -318,6 +320,10 @@ class ProfileStudio(ctk.CTk):
         self.eb=ctk.CTkFont(family="JetBrains Mono",size=11)
         self.hf=ctk.CTkFont(family="Inter",size=22,weight="bold")   # header title
         self.grid_columnconfigure(0,weight=1); self.grid_rowconfigure(2,weight=1)
+        if build: self.build()
+
+    def build(self):
+        """Create the UI. Separate from __init__ so it can happen after the license check."""
         self._header(); self._toolbar(); self._body(); self._footer()
         self.after(60, self._fit_to_screen)
         self.bind_class("Entry","<FocusIn>", lambda e: self._capture())   # one undo step per field edit
@@ -329,34 +335,9 @@ class ProfileStudio(ctk.CTk):
         widget.grid(row=r,column=2,sticky="ew",padx=(0,8),pady=5)
 
     def _brand_logo(self, target_h=30):
-        """The REAL SandBox mark, placed directly on the dark header.
-
-        Uses the official white (reversed) logo supplied for dark backgrounds — white on
-        transparent, ~18:1 against the header. The artwork is never recreated or recolored;
-        we just scale it. Falls back to the navy logo on a light plate if the white asset is
-        ever missing, so a dark-on-dark invisible mark can't happen.
-        """
-        from .materials import _base_dir
-        adir=_base_dir()/"assets"
-        white=adir/"sandbox-logo-white.png"
-        if white.exists():
-            try:
-                logo=Image.open(white).convert("RGBA")
-                lh=target_h; lw=max(1,int(logo.width*lh/logo.height))
-                return logo.resize((lw,lh), Image.LANCZOS)          # straight onto the header
-            except Exception:
-                pass
-        p=adir/"sandbox-logo.png"                                   # fallback: navy on a plate
-        if not p.exists(): return None
-        try: logo=Image.open(p).convert("RGBA")
-        except Exception: return None
-        plate_h=target_h+8; pad_y=6; pad_x=12
-        lh=max(1,plate_h-2*pad_y); lw=max(1,int(logo.width*lh/logo.height))
-        logo=logo.resize((lw,lh), Image.LANCZOS)
-        plate=Image.new("RGBA",(lw+2*pad_x, plate_h),(0,0,0,0))
-        ImageDraw.Draw(plate).rounded_rectangle([0,0,plate.width-1,plate_h-1],radius=9,fill=(255,255,255,245))
-        plate.alpha_composite(logo,(pad_x,pad_y))
-        return plate
+        """The SandBox mark for the header — see theme.brand_logo (shared with the
+        license screen, which must look like the app without importing it)."""
+        return brand_logo(target_h)
 
     def _header(self):
         h=ctk.CTkFrame(self,fg_color=NAVY_900,corner_radius=0,height=54); h.grid(row=0,column=0,sticky="ew"); h.grid_propagate(False); h.grid_columnconfigure(0,weight=1)
@@ -1339,4 +1320,16 @@ class ProfileStudio(ctk.CTk):
 
 
 def launch():
-    ProfileStudio().mainloop()
+    """License screen first; the main window only ever appears once the check passes.
+
+    One Tk root for both screens: creating a second root after destroying the first
+    leaves customtkinter's scaling tracker firing at dead windows.
+    """
+    from .license_gui import require_license
+    app=ProfileStudio(build=False)
+    app.withdraw()                                   # hidden while the gate is up
+    if not require_license(app):
+        app.destroy(); return
+    app.build()
+    app.deiconify(); app.lift(); app.focus_force()
+    app.mainloop()
