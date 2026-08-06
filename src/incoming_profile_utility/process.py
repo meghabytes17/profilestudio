@@ -424,8 +424,18 @@ def _polys(geom):
 
 
 def _px(ring, cx, total_h, nm_per_px):
+    """Project a ring's nm coordinates to integer pixel coordinates for cv2.fillPoly.
+
+    The y-coordinate is ROUNDED to the nearest pixel row (not truncated). This is what keeps a
+    horizontal interface shared by two stacked regions — e.g. one region's top edge and the
+    next region's bottom edge at the same nm height — landing on the *same* pixel row in both
+    fills. Truncation let the two edges fall on adjacent rows depending on the column, which
+    showed up as a 1px notch where an opening met the interface (a material appearing to poke
+    past a line that should be straight). x is left as a float cast so vertical walls keep their
+    exact position; only the shared horizontal seam needed the consistent rounding.
+    """
     xs, ys = ring.coords.xy
-    return np.array([[[(cx + x) / nm_per_px, (total_h - y) / nm_per_px]
+    return np.array([[[(cx + x) / nm_per_px, round((total_h - y) / nm_per_px)]
                       for x, y in zip(xs, ys)]], dtype=np.int32)
 
 
@@ -450,6 +460,53 @@ def _downsample_mode(label, ss):
     return out - 1
 
 
+def _straighten_flat_interfaces(label, regions_meta):
+    """Remove 1px seams where a region with a flat top is over-painted by the region above it.
+
+    Two stacked regions share an edge at one nm height (e.g. silicon-top == hardmask-bottom).
+    The upper region, drawn last, wins that shared pixel row wherever it has a wall, so the
+    lower region's flat top shows one row higher only in the columns interrupted by an opening.
+    The interface that should be a straight line then has a 1px notch — the "grey dips below the
+    straight blue line" artifact the customer reported.
+
+    For each region whose top edge is geometrically flat, we take the highest row that top
+    actually reaches (its true flat line) and reclaim any column where the region was pushed a
+    row or two lower, relabelling the over-painted pixels back to this region. This only moves a
+    boundary by the rounding error, never creates a new colour (labels stay integer), skips
+    regions with sloped/round/CSV tops so real geometry is untouched, and is fully vectorised.
+    """
+    H, W = label.shape
+    if H < 3 or W < 3:
+        return
+    rows = np.arange(H)[:, None]
+    for idx, flat_top in regions_meta:
+        if not flat_top:
+            continue
+        present = label == idx                      # where this region is visible
+        cols_present = present.any(axis=0)
+        if cols_present.sum() < 2:
+            continue
+        # topmost row of the region in each column (H where absent)
+        first = np.where(present, rows, H).min(axis=0)
+        valid = first[cols_present]
+        top_row = int(valid.min())                  # the true flat top line
+        spread = int(valid.max() - top_row)
+        if spread == 0 or spread > 3:
+            continue                                # already flat, or genuinely stepped
+        if (valid == top_row).sum() < max(2, len(valid) // 10):
+            continue                                # top line not well attested -> skip
+        # columns whose visible top sits below the flat line were over-painted: reclaim the
+        # band [top_row, their_top) for this region, but only pixels currently ABOVE the
+        # region (i.e. what the upper neighbour took), never dipping into anything below.
+        band = label[top_row: top_row + spread]     # a view; H_band = spread rows
+        col_top = first[None, :]                     # per-column current top row
+        band_rows = np.arange(top_row, top_row + spread)[:, None]
+        # a pixel is reclaimable if it lies above the column's current region-top AND the region
+        # exists lower in that column (so we're filling its own overhang, not inventing it)
+        reclaim = (band_rows < col_top) & cols_present[None, :]
+        band[reclaim] = idx
+
+
 def render_regions(state: State, palette, out_path, nm_per_px: float = 0.4, oversample: int = 1):
     """Rasterize the profile. Every output pixel is assigned to exactly ONE material
     (or background), so materials never overlap and — with oversample>1 — edges are
@@ -464,6 +521,7 @@ def render_regions(state: State, palette, out_path, nm_per_px: float = 0.4, over
     cx = pitch / 2
     label = np.full((H, W), -1, np.int32)     # -1 = background / vacuum
     colors = []
+    regions_meta = []
     for idx, (material, geom) in enumerate(state.regions):
         colors.append(palette.bgr(material))
         m = np.zeros((H, W), np.uint8)
@@ -472,6 +530,11 @@ def render_regions(state: State, palette, out_path, nm_per_px: float = 0.4, over
             for ring in poly.interiors:
                 cv2.fillPoly(m, _px(ring, cx, total_h, npp), 0)   # holes reveal below
         label[m == 255] = idx                 # later material wins -> one label per pixel
+        # a region has a flat top if its polygon(s) reach a single maximum y across their span
+        tops = [p.bounds[3] for p in _polys(geom)]
+        flat_top = bool(tops) and (max(tops) - min(tops) < npp * 0.5)
+        regions_meta.append((idx, flat_top))
+    _straighten_flat_interfaces(label, regions_meta)
     if ss > 1:
         label = _downsample_mode(label, ss)
         H, W = label.shape

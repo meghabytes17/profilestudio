@@ -453,3 +453,76 @@ def test_release_notes_cover_the_current_version():
     notes = (ROOT / "RELEASE_NOTES.md").read_text()
     assert f"## {ipu.__version__}" in notes, "current version has no release-notes section"
     assert ipu.__build_date__ in notes
+
+
+# --------------------------------------------------------------------------- #
+# Flat interfaces must render as straight lines (no 1px rasterization seam)
+# --------------------------------------------------------------------------- #
+def test_flat_interface_under_opening_is_a_straight_line(tmp_path):
+    """A CSV-trace opening carved into the top layer leaves a flat interface with the layer
+    below. That interface must rasterize as a single straight row across the whole cell — the
+    material below must not appear one pixel higher inside the opening than under the walls
+    (the 'grey dips below the straight blue line' seam a customer reported)."""
+    import numpy as np
+    pal = load_palette()
+    p = dict(
+        material_layers=[dict(material="hardmask", thickness=27.94),
+                         dict(material="silicon", thickness=50),
+                         dict(material="hardmask", thickness=1)],
+        pitch=1.22, space=0.0, top_vacuum=1.06,
+        opening_trace=[(0.5143, 0.0), (0.59358, 1.4155), (0.63304, 3.2275),
+                       (0.70702, 8.3675), (0.7771, 22.1275), (0.80942, 25.866),
+                       (0.8468, 27.94)],
+        opening_ref=51.0,
+    )
+    st = evaluate(build_base(p), [])
+    out = tmp_path / "seam.bmp"
+    render_regions(st, pal, out, 0.02)
+    im = np.asarray(Image.open(out).convert("RGB"))
+    silicon = tuple(pal.rgb("silicon"))
+    # topmost silicon row in every column that has silicon must be identical (a straight top)
+    tops = []
+    for x in range(im.shape[1]):
+        col = np.where((im[:, x] == silicon).all(axis=1))[0]
+        if len(col):
+            tops.append(int(col.min()))
+    assert tops, "silicon not rendered"
+    assert max(tops) - min(tops) == 0, f"silicon top is not a straight line: spread {max(tops)-min(tops)}px"
+    # and still exactly the palette colors (no blending introduced by the straightening pass)
+    assert len({tuple(c) for c in np.unique(im.reshape(-1, 3), axis=0)}) == 3
+
+
+def test_straightening_preserves_tapered_walls(tmp_path):
+    """The seam fix must only touch flat interfaces — a genuinely sloped (tapered) wall keeps
+    its slope and is not flattened."""
+    import numpy as np
+    pal = load_palette()
+    p = dict(material_layers=[dict(material="silicon", thickness=100,
+                                   shape=[dict(kind="taper", angle=60)])],
+             pitch=200, space=80, top_vacuum=10, opening_depth=90)
+    st = evaluate(build_base(p), [])
+    out = tmp_path / "taper.bmp"
+    render_regions(st, pal, out, 0.5)
+    im = np.asarray(Image.open(out).convert("RGB"))
+    left_edges = set()
+    for y in range(im.shape[0]):
+        blk = np.where((im[y] == (0, 0, 0)).all(axis=1))[0]
+        if len(blk):
+            left_edges.add(int(blk.min()))
+    assert len(left_edges) > 3, "tapered wall was incorrectly flattened into a vertical edge"
+
+
+def test_straightening_preserves_thin_layers(tmp_path):
+    """A 1nm layer must survive the straightening pass (not be eaten)."""
+    import numpy as np
+    pal = load_palette()
+    p = dict(material_layers=[dict(material="hardmask", thickness=27.94),
+                             dict(material="silicon", thickness=50),
+                             dict(material="hardmask", thickness=1)],
+             pitch=51, space=20, top_vacuum=1, opening_depth=25)
+    st = evaluate(build_base(p), [])
+    out = tmp_path / "thin.bmp"
+    render_regions(st, pal, out, 0.1)
+    im = np.asarray(Image.open(out).convert("RGB"))
+    cols = {tuple(c) for c in np.unique(im.reshape(-1, 3), axis=0)}
+    assert tuple(pal.rgb("hardmask")) in cols, "thin hardmask layer was eaten"
