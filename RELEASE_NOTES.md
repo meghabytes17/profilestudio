@@ -12,6 +12,31 @@ Properties → Details. Please quote it when reporting an issue.
 
 ---
 
+## 1.2.0 — 2026-08-06
+
+**Licensing**
+
+- Profile Studio now checks a **license** before the main window opens. The license file is
+  called `license.lic` and sits next to `ProfileStudio.exe`; when it is there, the screen
+  shows who the software is licensed to and how long the license runs, and you carry on with
+  **Continue**.
+- **No license yet?** The same screen shows this machine's **hardware signature** — copy it or
+  save it to a file and send it to SandBox Semiconductor. Licenses are tied to one computer.
+- When your license file arrives, **Select license file…** installs it next to the program,
+  so every later start goes straight through. **Renew license…** does the same before an
+  existing license runs out; a license with less than a month left is highlighted.
+- The screen fits small and DPI-scaled displays: it never opens larger than the screen, and
+  the buttons stay in reach.
+
+**Fixes**
+
+- Flat interfaces under an opening no longer show a 1-pixel seam where two materials meet.
+- The SandBox mark is drawn straight onto the dark header, the **Color** dialog is no longer
+  clipped, and "Colour" is spelled "Color" throughout the interface.
+- The `.exe` build is robust to the version-resource encoding and works on Python 3.14.
+
+---
+
 ## 1.1.0 — 2026-07-24
 
 **Branding**

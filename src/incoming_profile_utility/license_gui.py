@@ -7,6 +7,9 @@ Two states, one window:
 
 The activation panel (signature + picker) is the same in both states; it just starts
 hidden when the license is already good.
+
+Sizing: the content scrolls and the window is clamped to the screen, so the buttons stay
+reachable on a small or heavily DPI-scaled display. See _resize() for the scaling trap.
 """
 from __future__ import annotations
 
@@ -20,6 +23,43 @@ from . import licensing
 from .theme import (AMBER, BLUE_L, GREEN, GREEN_D, GREEN_INK, MUT, NAVY, NAVY_700,
                     NAVY_800, NAVY_900, ON, RED, SOFT, brand_logo)
 
+# All in LOGICAL units (what .geometry() takes) — never raw pixels. See _resize().
+PREF_W = 600                    # the width the screen is designed at
+MIN_W, MIN_H = 460, 260         # still usable if the screen is tiny
+BTN_PAD = 12                    # padding around the button row (grid pady, so _resize adds it)
+SCREEN_MARGIN_W = 40            # leave the window clear of the screen edges…
+SCREEN_MARGIN_H = 90            # …and of the title bar + taskbar (as gui._fit_to_screen)
+
+
+def fit_size(content_w, content_h, screen_w, screen_h, scaling):
+    """Window size for content measuring content_w × content_h REAL pixels.
+
+    Returns (width, height, must_scroll) in LOGICAL units — the units .geometry() takes.
+
+    Converting is the whole point. Tk reports widget sizes in real pixels, but
+    CTkToplevel.geometry() multiplies what it is handed by the display scaling factor, so
+    feeding measurements straight back makes the window scaling-times too big: at Windows
+    150% a 900px-tall screen is asked for 1350px and its bottom (the buttons) is simply
+    gone. Small screens and high scaling factors go together, which is why this shows up
+    on low-resolution displays first.
+    """
+    f = scaling or 1.0
+    need_w = max(PREF_W, content_w / f)
+    need_h = content_h / f + 2 * BTN_PAD
+    avail_w = screen_w / f - SCREEN_MARGIN_W
+    avail_h = screen_h / f - SCREEN_MARGIN_H
+    w = int(max(MIN_W, min(need_w, avail_w)))
+    h = int(max(MIN_H, min(need_h, avail_h)))
+    return w, h, need_h > h + 1     # taller than we can show: the body has to scroll
+
+
+def fit_top(y, height_px, screen_h, taskbar=60):
+    """Top edge for a window of height_px that keeps its bottom on the screen."""
+    limit = screen_h - taskbar
+    if y + height_px <= limit:
+        return y                    # already fits: leave the window where the user has it
+    return max(0, int(limit - height_px))
+
 
 class LicenseGate(ctk.CTkToplevel):
     """Modal license screen. `run()` returns True when the user may enter the app."""
@@ -28,7 +68,7 @@ class LicenseGate(ctk.CTkToplevel):
         super().__init__(master)
         self.configure(fg_color=NAVY)
         self.title(f"{APP_NAME} — License")
-        self.resizable(False, False)
+        self.resizable(True, True)      # no fixed size fits every screen; let people adjust
         self.protocol("WM_DELETE_WINDOW", self._quit)
 
         self.uf = ctk.CTkFont(family="Inter", size=13)
@@ -40,10 +80,23 @@ class LicenseGate(ctk.CTkToplevel):
 
         self._admitted = False
         self._panel_open = False
+        self._wrapped = []              # labels whose wraplength follows the window width
+        self._wrap_at = 0
+        self._pos = None                # where _center put us, once it has run
         self.status = status if status is not None else licensing.find_license()
 
         self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)     # the body takes whatever height is left over
         self._header()
+        # Everything between the header and the buttons scrolls, so a screen too short for
+        # the content costs the user a scroll — never the Continue/Quit buttons.
+        self.body = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
+        self.body.grid(row=1, column=0, sticky="nsew")
+        self.body.grid_columnconfigure(0, weight=1)
+        # add="+": CTkScrollableFrame keeps its scroll region up to date from its own
+        # <Configure> binding, and a plain bind() would silently replace it — leaving the
+        # content unscrollable exactly when scrolling is needed.
+        self.body.bind("<Configure>", self._rewrap, add="+")
         self._status_card()
         self._activation_panel()
         self._buttons()
@@ -54,7 +107,7 @@ class LicenseGate(ctk.CTkToplevel):
 
     # ---- layout ----
     def _header(self):
-        h = ctk.CTkFrame(self, fg_color=NAVY_900, corner_radius=0, height=54)
+        self.head = h = ctk.CTkFrame(self, fg_color=NAVY_900, corner_radius=0, height=54)
         h.grid(row=0, column=0, sticky="ew")
         h.grid_propagate(False)
         h.grid_columnconfigure(0, weight=1)
@@ -69,37 +122,43 @@ class LicenseGate(ctk.CTkToplevel):
             row=0, column=1, sticky="e", padx=22)
 
     def _card(self, row, pady=(18, 0)):
-        c = ctk.CTkFrame(self, fg_color=NAVY_800, corner_radius=12,
+        c = ctk.CTkFrame(self.body, fg_color=NAVY_800, corner_radius=12,
                          border_width=1, border_color=NAVY_700)
         c.grid(row=row, column=0, sticky="ew", padx=22, pady=pady)
         c.grid_columnconfigure(0, weight=1)
         return c
 
+    def _wrap(self, label):
+        """Register a label that should re-wrap when the window is resized."""
+        self._wrapped.append(label)
+        return label
+
     def _status_card(self):
-        c = self._card(1)
+        c = self._card(0)
         self.state_lbl = ctk.CTkLabel(c, text="", font=self.sf, text_color=ON, anchor="w")
         self.state_lbl.grid(row=0, column=0, sticky="w", padx=18, pady=(16, 2))
-        self.holder_lbl = ctk.CTkLabel(c, text="", font=self.uf, text_color=SOFT, anchor="w",
-                                       justify="left", wraplength=520)
+        self.holder_lbl = self._wrap(ctk.CTkLabel(c, text="", font=self.uf, text_color=SOFT,
+                                                  anchor="w", justify="left", wraplength=520))
         self.holder_lbl.grid(row=1, column=0, sticky="w", padx=18, pady=(0, 2))
         self.expiry_lbl = ctk.CTkLabel(c, text="", font=self.ub, text_color=SOFT, anchor="w")
         self.expiry_lbl.grid(row=2, column=0, sticky="w", padx=18, pady=(0, 2))
-        self.path_lbl = ctk.CTkLabel(c, text="", font=self.eb, text_color=MUT, anchor="w",
-                                     justify="left", wraplength=520)
+        self.path_lbl = self._wrap(ctk.CTkLabel(c, text="", font=self.eb, text_color=MUT,
+                                                anchor="w", justify="left", wraplength=520))
         self.path_lbl.grid(row=3, column=0, sticky="w", padx=18, pady=(6, 16))
 
     def _activation_panel(self):
-        self.panel = ctk.CTkFrame(self, fg_color=NAVY_800, corner_radius=12,
+        self.panel = ctk.CTkFrame(self.body, fg_color=NAVY_800, corner_radius=12,
                                   border_width=1, border_color=NAVY_700)
         self.panel.grid_columnconfigure(0, weight=1)
         p = self.panel
 
         ctk.CTkLabel(p, text="Request a license", font=self.ub, text_color=ON, anchor="w"
                      ).grid(row=0, column=0, sticky="w", padx=18, pady=(14, 2))
-        ctk.CTkLabel(p, text="Send this machine's hardware signature to your software vendor. "
-                     "They return a license file that is valid on this computer only.",
-                     font=self.eb, text_color=MUT, anchor="w", justify="left", wraplength=520
-                     ).grid(row=1, column=0, sticky="w", padx=18, pady=(0, 8))
+        self._wrap(ctk.CTkLabel(p, text="Send this machine's hardware signature to your software "
+                                "vendor. They return a license file that is valid on this computer "
+                                "only.", font=self.eb, text_color=MUT, anchor="w", justify="left",
+                                wraplength=520)
+                   ).grid(row=1, column=0, sticky="w", padx=18, pady=(0, 8))
 
         sig = ctk.CTkFrame(p, fg_color="transparent")
         sig.grid(row=2, column=0, sticky="ew", padx=18)
@@ -116,25 +175,27 @@ class LicenseGate(ctk.CTkToplevel):
         self.sig_hint.grid(row=3, column=0, sticky="w", padx=18, pady=(4, 0))
 
         ctk.CTkFrame(p, height=1, fg_color=NAVY_700).grid(
-            row=4, column=0, sticky="ew", padx=18, pady=(12, 12))
+            row=4, column=0, sticky="ew", padx=18, pady=(10, 10))
 
         ctk.CTkLabel(p, text="Already have a license file?", font=self.ub, text_color=ON, anchor="w"
                      ).grid(row=5, column=0, sticky="w", padx=18, pady=(0, 2))
-        ctk.CTkLabel(p, text=f"It is normally called “{licensing.LICENSE_FILENAME}” and sits next to "
-                     f"the program. Pick it here and it will be installed for you.",
-                     font=self.eb, text_color=MUT, anchor="w", justify="left", wraplength=520
-                     ).grid(row=6, column=0, sticky="w", padx=18, pady=(0, 8))
-        row = ctk.CTkFrame(p, fg_color="transparent")
-        row.grid(row=7, column=0, sticky="w", padx=18, pady=(0, 16))
-        ctk.CTkButton(row, text="Select license file…", command=self._pick_license, font=self.ub,
-                      width=170, fg_color=GREEN, hover_color=GREEN_D, text_color=GREEN_INK).pack(side="left")
-        self.pick_hint = ctk.CTkLabel(row, text="", font=self.eb,
-                                      text_color=RED, justify="left", wraplength=330)
-        self.pick_hint.pack(side="left", padx=(12, 0))
+        self._wrap(ctk.CTkLabel(p, text=f"It is normally called “{licensing.LICENSE_FILENAME}” and "
+                                f"sits next to the program. Pick it here and it will be installed "
+                                f"for you.", font=self.eb, text_color=MUT, anchor="w",
+                                justify="left", wraplength=520)
+                   ).grid(row=6, column=0, sticky="w", padx=18, pady=(0, 8))
+        ctk.CTkButton(p, text="Select license file…", command=self._pick_license, font=self.ub,
+                      width=170, fg_color=GREEN, hover_color=GREEN_D, text_color=GREEN_INK
+                      ).grid(row=7, column=0, sticky="w", padx=18, pady=(0, 4))
+        # Under the button, not beside it: the result can be a full sentence, and next to a
+        # 170px button it would be the first thing to run off a narrow window.
+        self.pick_hint = self._wrap(ctk.CTkLabel(p, text="", font=self.eb, text_color=RED,
+                                                 anchor="w", justify="left", wraplength=520))
+        self.pick_hint.grid(row=8, column=0, sticky="w", padx=18, pady=(0, 14))
 
     def _buttons(self):
-        b = ctk.CTkFrame(self, fg_color="transparent")
-        b.grid(row=3, column=0, sticky="ew", padx=22, pady=(16, 16))
+        self.btns = b = ctk.CTkFrame(self, fg_color="transparent")
+        b.grid(row=2, column=0, sticky="ew", padx=22, pady=(BTN_PAD, BTN_PAD))
         self.continue_btn = ctk.CTkButton(b, text="Continue →", command=self._admit, font=self.ub, width=130,
                                           height=36, fg_color=GREEN, hover_color=GREEN_D, text_color=GREEN_INK)
         self.continue_btn.pack(side="right")
@@ -179,22 +240,74 @@ class LicenseGate(ctk.CTkToplevel):
     def _toggle_panel(self, show):
         self._panel_open = show
         if show:
-            self.panel.grid(row=2, column=0, sticky="ew", padx=22, pady=(14, 0))
+            self.panel.grid(row=1, column=0, sticky="ew", padx=22, pady=(14, 18))
         else:
             self.panel.grid_remove()
         self._resize()
 
+    # ---- sizing ----
+    def _scaling(self):
+        """Display scaling factor: real pixels per logical unit (1.25 at Windows 125%)."""
+        try:
+            return ctk.ScalingTracker.get_window_scaling(self) or 1.0
+        except Exception:
+            return 1.0
+
     def _resize(self):
+        """Fit the window to its content, but never past the edges of the screen."""
         self.update_idletasks()
-        self.geometry(f"600x{self.winfo_reqheight()}")
+        content_h = (self.head.winfo_reqheight() + self.body.winfo_reqheight()
+                     + self.btns.winfo_reqheight())
+        f = self._scaling()
+        w, h, scrolls = fit_size(self.body.winfo_reqwidth(), content_h,
+                                 self.winfo_screenwidth(), self.winfo_screenheight(), f)
+        self.geometry(f"{w}x{h}")
+        self.minsize(min(MIN_W, w), min(MIN_H, h))
+        self._show_scrollbar(scrolls)
+        self._keep_on_screen(h * f)
+
+    def _keep_on_screen(self, height_px):
+        """Growing — opening the renew panel — must not push the buttons off the screen.
+
+        The window is centred once, at startup, and keeps that position afterwards; only a
+        bottom edge that would land past the display moves it back up. `height_px` is the
+        height just requested: winfo_height() still reports the old one at this point.
+        """
+        if self._pos is None:                                # not placed yet: _center will do it
+            return
+        x, y = self._pos
+        top = fit_top(y, height_px, self.winfo_screenheight())
+        if top != y:
+            self._pos = (x, top)
+            self.geometry(f"+{x}+{top}")
+
+    def _show_scrollbar(self, needed):
+        """CTkScrollableFrame always grids its scrollbar; hide it when it has no job."""
+        try:
+            bar = self.body._scrollbar
+            bar.grid() if needed else bar.grid_remove()
+        except Exception:                                    # private attr: never fatal
+            pass
+
+    def _rewrap(self, event):
+        """Keep wrapped text inside the window when it is narrower than the design width."""
+        width = int(event.width / self._scaling()) - 80      # card + inner padding
+        width = max(200, width)
+        if abs(width - self._wrap_at) < 8:                   # ignore jitter: configure loops
+            return
+        self._wrap_at = width
+        for label in self._wrapped:
+            label.configure(wraplength=width)
 
     def _center(self):
         self.update_idletasks()
         w = self.winfo_width() or 600
         h = self.winfo_height() or 460
-        x = (self.winfo_screenwidth() - w) // 2
-        y = max(0, (self.winfo_screenheight() - h) // 3)
-        self.geometry(f"+{x}+{y}")
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        x = max(0, (sw - w) // 2)
+        y = max(0, min((sh - h) // 3, sh - h - 60))          # never below the taskbar
+        self._pos = (x, y)
+        self.geometry(f"+{x}+{y}")                           # x/y are not scaled by ctk
 
     # ---- actions ----
     def _copy_signature(self):
